@@ -1,1 +1,6 @@
-export function Logo({ compact = false }: { compact?: boolean }) { return <a href="#top" className="focus-ring" aria-label="Echovest home" style={{display:"inline-flex",alignItems:"center",gap:10,color:"#EAECEF",textDecoration:"none",fontWeight:600,fontSize:18}}><svg width="32" height="32" viewBox="0 0 200 200" aria-hidden="true"><rect width="200" height="200" rx="44" fill="#1E2329"/><g transform="translate(0,9)" fill="none" stroke="#F0B90B" strokeWidth="13" strokeLinecap="round" strokeLinejoin="round"><path d="M50 92L100 150L150 92"/><path d="M50 62L100 120L150 62" opacity=".55"/><path d="M50 32L100 90L150 32" opacity=".25"/></g></svg>{!compact && "Echovest"}</a> }
+export function Logo({ compact = false }: { compact?: boolean }) {
+  return <a href="/pwa" className="focus-ring site-brand" aria-label="EchoVest home">
+    <span className="site-brand-icon"><img src="/echovest-icon.png" alt="" /></span>
+    {!compact && <span>EchoVest</span>}
+  </a>;
+}
