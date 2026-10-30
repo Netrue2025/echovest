@@ -11,6 +11,7 @@ import { BtcMarketChart } from "../components/BtcMarketChart";
 import { DepositView } from "./DepositView";
 import { WithdrawalView } from "./WithdrawalView";
 import { authRequest, AuthUser } from "../lib/auth-api";
+import { AppPreloader } from "../components/AppPreloader";
 
 const navItems = [
   { id: "overview", label: "Overview", icon: Home },
@@ -171,7 +172,7 @@ export function Dashboard({ initialView = "overview" }: { initialView?: string }
   async function signOut() {
     try { await authRequest("signout", {}); } finally { router.replace("/sign-in"); }
   }
-  if (!ready) return <main className="dash-loading"><span className="brand-icon-crop"><img src="/echovest-icon.png" alt="" /></span><p>Opening your preview…</p></main>;
+  if (!ready) return <AppPreloader label="Loading your account…" />;
   const activeContent = active === "wallet" ? <WalletView /> : active === "deposit" ? <DepositView /> : active === "withdraw" ? <WithdrawalView /> : active === "notifications" ? <NotificationsView /> : active === "trading" ? <TradingView /> : active === "referrals" ? <ReferralsView /> : active === "levels" ? <LevelsView /> : active === "transactions" ? <TransactionsView /> : active === "settings" ? <SettingsView email={email} name={userName} /> : active === "help" ? <HelpView /> : <Overview email={email} name={userName} />;
   const initials = userName ? userName.slice(0, 1).toUpperCase() : email ? email.slice(0, 1).toUpperCase() : "U";
   return <div className="dash-app">

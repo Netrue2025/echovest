@@ -3,6 +3,7 @@
 import { ClipboardEvent, FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { authRequest } from "../lib/auth-api";
+import { AppPreloader } from "../components/AppPreloader";
 
 export function EmailVerificationPage() {
   const router = useRouter();
@@ -70,7 +71,7 @@ export function EmailVerificationPage() {
 
   if (!email) return <main className="verify-page" aria-busy="true" />;
   const complete = digits.every(Boolean);
-  return <main className="verify-page">
+  return <>{busy && <AppPreloader label="Verifying your email…" />}<main className="verify-page">
     <section className="verify-card" aria-labelledby="verify-title">
       <div className="verify-heading"><h1 id="verify-title">Verify your email</h1><p>Enter the 6-digit code we sent to</p><strong>{email}</strong></div>
       <form onSubmit={verify}>
@@ -84,5 +85,5 @@ export function EmailVerificationPage() {
       <p className="verify-resend">Didn’t receive a code? <button type="button" disabled={busy || secondsLeft > 0} onClick={resend}>{secondsLeft > 0 ? `Resend in 00:${String(secondsLeft).padStart(2, "0")}` : "Resend"}</button></p>
       <button className="verify-back" type="button" onClick={() => router.push("/sign-up")}>Back to sign up</button>
     </section>
-  </main>;
+  </main></>;
 }

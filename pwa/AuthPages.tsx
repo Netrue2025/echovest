@@ -5,6 +5,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { countries } from "../lib/countries";
 import { authRequest } from "../lib/auth-api";
+import { AppPreloader } from "../components/AppPreloader";
 
 function PasswordField({ id, label, placeholder, value, onChange, autoComplete }: {
   id: string; label: string; placeholder: string; value: string; onChange: (value: string) => void; autoComplete: string;
@@ -63,7 +64,7 @@ export function SignUpPage() {
     } finally { setBusy(false); }
   }
 
-  return <main className="auth-page">
+  return <>{busy && <AppPreloader label="Creating your account…" />}<main className="auth-page">
     <section className="auth-card" aria-labelledby="signup-title">
       <div className="auth-heading"><h1 id="signup-title">Create your account</h1><p>Get started with EchoVest</p></div>
       <form className="auth-form" onSubmit={submit}>
@@ -86,7 +87,7 @@ export function SignUpPage() {
       </form>
       <p className="auth-switch">Already have an account? <a href="/sign-in">Sign in</a></p>
     </section>
-  </main>;
+  </main></>;
 }
 
 export function SignInPage() {
@@ -106,7 +107,7 @@ export function SignInPage() {
       setNotice(error instanceof Error ? error.message : "Unable to sign in. Please try again.");
     } finally { setBusy(false); }
   }
-  return <main className="auth-page auth-page-login">
+  return <>{busy && <AppPreloader label="Signing you in…" />}<main className="auth-page auth-page-login">
     <section className="auth-card auth-card-login" aria-labelledby="signin-title">
       <div className="auth-heading"><h1 id="signin-title">Welcome back</h1><p>Sign in to continue to EchoVest</p></div>
       <form className="auth-form" onSubmit={submit}>
@@ -118,5 +119,5 @@ export function SignInPage() {
       </form>
       <p className="auth-switch">New to EchoVest? <a href="/sign-up">Create an account</a></p>
     </section>
-  </main>;
+  </main></>;
 }

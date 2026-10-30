@@ -1,0 +1,74 @@
+.screen {
+  position: fixed;
+  z-index: 2000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  min-height: 100svh;
+  padding: 24px;
+  background: #f7f8fa;
+  color: #1e2329;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.mark {
+  position: relative;
+  display: grid;
+  width: 76px;
+  height: 76px;
+  place-items: center;
+  border-radius: 21px;
+  background: #1e2329;
+  box-shadow: 0 12px 32px #1e232926;
+  animation: mark-pulse 1.6s ease-in-out infinite;
+}
+
+.mark::after {
+  position: absolute;
+  inset: -7px;
+  border: 2px solid transparent;
+  border-top-color: #f0b90b;
+  border-right-color: #00c087;
+  border-radius: 26px;
+  content: "";
+  animation: ring-spin 1.15s linear infinite;
+}
+
+.mark img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.wordmark {
+  margin-top: 7px;
+  font-size: 18px;
+  font-weight: 750;
+  letter-spacing: -.035em;
+}
+
+.label {
+  color: #747d88;
+  font-size: 14px;
+}
+
+@keyframes ring-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes mark-pulse {
+  0%, 100% { transform: scale(.96); }
+  50% { transform: scale(1.04); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mark, .mark::after { animation: none; }
+}
