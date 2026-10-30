@@ -5,13 +5,14 @@ import {
   CircleHelp, Copy, Crown, Gem, Home, LogOut, Medal, Menu, ReceiptText, Settings, ShieldCheck,
   Sparkles, Users, Wallet, X, Zap, User, Plus,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { type MouseEvent as ReactMouseEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BtcMarketChart } from "../components/BtcMarketChart";
 import { DepositView } from "./DepositView";
 import { WithdrawalView } from "./WithdrawalView";
 import { authRequest, AuthUser } from "../lib/auth-api";
 import { AppPreloader } from "../components/AppPreloader";
+import loadingStyles from "../components/AppPreloader.module.css";
 
 const navItems = [
   { id: "overview", label: "Overview", icon: Home },
@@ -22,6 +23,8 @@ const navItems = [
   { id: "transactions", label: "Transactions", icon: ReceiptText },
 ];
 const formatView = (id: string) => navItems.find((item) => item.id === id)?.label ?? (id === "help" ? "Help & support" : id === "notifications" ? "Notifications" : id === "deposit" ? "Deposit" : id === "withdraw" ? "Withdraw" : "Settings");
+const validViews = new Set([...navItems.map(({ id }) => id), "settings", "help", "deposit", "withdraw", "notifications"]);
+const normalizeView = (value: string | null | undefined) => value && validViews.has(value) ? value : "overview";
 const recentActivity = [
   { title: "Deposit credited", detail: "USDT · Today, 10:42 AM", amount: "+$500.00", type: "in", state: "Completed" },
   { title: "Copy allocation", detail: "BTC Trend Strategy · Yesterday", amount: "−$120.00", type: "out", state: "Active" },
@@ -158,7 +161,27 @@ export function Dashboard({ initialView = "overview" }: { initialView?: string }
   const [email, setEmail] = useState("");
   const [userName, setUserName] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
-  const active = navItems.some((item) => item.id === initialView) || ["settings", "help", "deposit", "withdraw", "notifications"].includes(initialView) ? initialView : "overview";
+  const [active, setActive] = useState(() => normalizeView(initialView));
+  const [signingOut, setSigningOut] = useState(false);
+
+  function navigateWithinDashboard(event: ReactMouseEvent<HTMLDivElement>) {
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (!(event.target instanceof Element)) return;
+    const link = event.target.closest<HTMLAnchorElement>("a[href]");
+    if (!link || link.target === "_blank" || link.hasAttribute("download")) return;
+    const destination = new URL(link.href, window.location.href);
+    if (destination.origin !== window.location.origin || destination.pathname !== "/dashboard") return;
+    event.preventDefault();
+    const view = normalizeView(destination.searchParams.get("view"));
+    const nextUrl = `${destination.pathname}${destination.search}${destination.hash}`;
+    if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextUrl) {
+      window.history.pushState(null, "", nextUrl);
+    }
+    setActive(view);
+    setMobileOpen(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   useEffect(() => {
     let active = true;
     authRequest<{ user: AuthUser }>("me").then(({ user }) => {
@@ -169,19 +192,26 @@ export function Dashboard({ initialView = "overview" }: { initialView?: string }
     }).catch(() => { if (active) router.replace("/sign-in"); });
     return () => { active = false; };
   }, [router]);
+  useEffect(() => {
+    const syncView = () => setActive(normalizeView(new URLSearchParams(window.location.search).get("view")));
+    window.addEventListener("popstate", syncView);
+    return () => window.removeEventListener("popstate", syncView);
+  }, []);
   async function signOut() {
+    setSigningOut(true);
     try { await authRequest("signout", {}); } finally { router.replace("/sign-in"); }
   }
   if (!ready) return <AppPreloader label="Loading your account…" />;
   const activeContent = active === "wallet" ? <WalletView /> : active === "deposit" ? <DepositView /> : active === "withdraw" ? <WithdrawalView /> : active === "notifications" ? <NotificationsView /> : active === "trading" ? <TradingView /> : active === "referrals" ? <ReferralsView /> : active === "levels" ? <LevelsView /> : active === "transactions" ? <TransactionsView /> : active === "settings" ? <SettingsView email={email} name={userName} /> : active === "help" ? <HelpView /> : <Overview email={email} name={userName} />;
   const initials = userName ? userName.slice(0, 1).toUpperCase() : email ? email.slice(0, 1).toUpperCase() : "U";
-  return <div className="dash-app">
+  return <div className="dash-app" onClick={navigateWithinDashboard}>
+    {signingOut && <AppPreloader label="Signing out…" />}
     <aside className="dash-sidebar"><Brand /><NavLinks active={active} /><div className="dash-sidebar-bottom"><div className="dash-help-card"><span><ShieldCheck size={17} /></span><b>Your account, protected</b><small>Security features are coming soon.</small></div><button type="button" className="dash-signout" onClick={signOut}><LogOut size={18} />Sign out</button></div></aside>
     {mobileOpen && <div className="dash-mobile-backdrop" onClick={() => setMobileOpen(false)} />}
     <aside className={`dash-mobile-sidebar ${mobileOpen ? "open" : ""}`} aria-hidden={!mobileOpen}><div className="dash-mobile-sidebar-head"><Brand /><button type="button" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={20} /></button></div><NavLinks active={active} onNavigate={() => setMobileOpen(false)} /><button type="button" className="dash-signout" onClick={signOut}><LogOut size={18} />Sign out</button></aside>
     <div className="dash-main"><header className="dash-topbar"><button type="button" className="dash-mobile-menu" aria-label="Open navigation" onClick={() => setMobileOpen(true)}><Menu size={21} /></button><div className="dash-crumb">Workspace <span>/</span> {formatView(active)}</div><div className="dash-topbar-actions"><span className="dash-topbar-demo">Demo preview</span><button type="button" className="dash-icon-button" aria-label="Notifications"><Bell size={18} /><i /></button><span className="dash-user-separator" /><a className="dash-user-button" href="/dashboard?view=settings"><span className="dash-user-avatar">{initials}</span><span className="dash-user-name">{userName || email}</span><ChevronDown size={15} /></a></div></header>
-      <main className="dash-page"><div className="dash-hello"><div><p>Good to see you</p><h2>Welcome back<span>.</span></h2></div><p className="dash-preview-caption">All figures shown are sample data</p></div>{activeContent}</main>
-      <nav className="dash-bottom-nav" aria-label="Quick navigation">{[{ id: "overview", label: "Home", icon: Home }, { id: "trading", label: "Trade", icon: Zap }, { id: "wallet", label: "Vault", icon: ShieldCheck }, { id: "transactions", label: "History", icon: ReceiptText }, { id: "settings", label: "Profile", icon: User }].map(({ id, label, icon: Icon }) => <a href={id === "overview" ? "/dashboard" : `/dashboard?view=${id}`} key={id} className={active === id ? "active" : ""} aria-current={active === id ? "page" : undefined}><Icon size={20} /><span>{label}</span></a>)}</nav>
+      <main className="dash-page"><div className="dash-hello"><div><p>Good to see you</p><h2>Welcome back<span>.</span></h2></div><p className="dash-preview-caption">All figures shown are sample data</p></div><div key={active} className={loadingStyles.sectionEnter}>{activeContent}</div></main>
+      <nav className={`dash-bottom-nav ${loadingStyles.mobileBottomNav}`} aria-label="Quick navigation">{[{ id: "overview", label: "Home", icon: Home }, { id: "trading", label: "Trade", icon: Zap }, { id: "wallet", label: "Vault", icon: ShieldCheck }, { id: "transactions", label: "History", icon: ReceiptText }, { id: "settings", label: "Profile", icon: User }].map(({ id, label, icon: Icon }) => <a href={id === "overview" ? "/dashboard" : `/dashboard?view=${id}`} key={id} className={active === id ? "active" : ""} aria-current={active === id ? "page" : undefined}><Icon size={20} /><span>{label}</span></a>)}<button type="button" className={loadingStyles.bottomSignOut} onClick={signOut}><LogOut size={20} /><span>Sign out</span></button></nav>
     </div>
   </div>;
 }

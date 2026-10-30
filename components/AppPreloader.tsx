@@ -9,3 +9,7 @@ export function AppPreloader({ label = "Loading EchoVest…" }: { label?: string
     </div>
   </main>;
 }
+
+export function InlineLoader({ label = "Loading" }: { label?: string }) {
+  return <span className={styles.inlineSpinner} role="status" aria-label={label} />;
+}

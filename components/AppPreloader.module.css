@@ -60,6 +60,46 @@
   font-size: 14px;
 }
 
+.inlineSpinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border: 2px solid #e6e9ed;
+  border-top-color: #f0b90b;
+  border-right-color: #00c087;
+  border-radius: 50%;
+  animation: ring-spin .8s linear infinite;
+}
+
+.sectionEnter {
+  animation: section-enter .18s ease-out both;
+}
+
+.bottomSignOut {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #8490a3;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.bottomSignOut svg { width: 20px; height: 20px; }
+.bottomSignOut:hover { color: #c34545; background: #fff1f1; }
+
+:global(.dash-bottom-nav).mobileBottomNav {
+  grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+}
+
 @keyframes ring-spin {
   to { transform: rotate(360deg); }
 }
@@ -69,6 +109,11 @@
   50% { transform: scale(1.04); }
 }
 
+@keyframes section-enter {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .mark, .mark::after { animation: none; }
+  .mark, .mark::after, .inlineSpinner, .sectionEnter { animation: none; }
 }

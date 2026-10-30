@@ -2,6 +2,7 @@
 
 import { Activity, ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { InlineLoader } from "./AppPreloader";
 
 type Range = "1H" | "24H" | "7D" | "30D";
 type Candle = { time: number; open: number; high: number; low: number; close: number };
@@ -99,7 +100,7 @@ export function BtcMarketChart() {
     <div className="dash-mobile-market-head"><span className="dash-mobile-coin">₿</span><div><strong>BTC/USDT</strong><small>Bitcoin / Tether · Spot</small></div><span className={`dash-market-live${data ? "" : " connecting"}`}><i />{data ? "Live" : loading ? "Connecting" : "Offline"}</span></div>
     <div className="dash-market-price-row"><strong>{current ? usd.format(current) : "—"}</strong><span className={change >= 0 ? "up" : "down"}>{change >= 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}{Math.abs(change).toFixed(2)}%</span></div>
     <div className="dash-mobile-chart">
-      {path ? <svg viewBox="0 0 360 92" preserveAspectRatio="none" role="img" aria-label={`Bitcoin price chart for ${range}`}><defs><linearGradient id="btcChartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#F0B90B" stopOpacity=".22"/><stop offset="100%" stopColor="#F0B90B" stopOpacity="0"/></linearGradient></defs><path d={`${path} L360,92 L0,92 Z`} className="dash-btc-chart-fill"/><path d={path} className="dash-btc-chart-line"/></svg> : <div className="dash-chart-state"><Activity size={17} />{loading ? "Loading live market data…" : error || "Chart data unavailable"}</div>}
+      {path ? <svg viewBox="0 0 360 92" preserveAspectRatio="none" role="img" aria-label={`Bitcoin price chart for ${range}`}><defs><linearGradient id="btcChartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#F0B90B" stopOpacity=".22"/><stop offset="100%" stopColor="#F0B90B" stopOpacity="0"/></linearGradient></defs><path d={`${path} L360,92 L0,92 Z`} className="dash-btc-chart-fill"/><path d={path} className="dash-btc-chart-line"/></svg> : <div className="dash-chart-state">{loading ? <InlineLoader label="Loading live BTC/USDT data" /> : <Activity size={17} />}{loading ? "Loading live market data…" : error || "Chart data unavailable"}</div>}
     </div>
     <div className="dash-market-footer"><div className="dash-market-ranges" aria-label="Chart period">{ranges.map((item) => <button type="button" key={item} className={range === item ? "active" : ""} onClick={() => setRange(item)}>{item}</button>)}</div><small>{data ? `Public ${data.source} data · Updated ${new Date(data.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : error ? "Retrying public market sources" : "Connecting to public market data"}</small></div>
   </article>;
