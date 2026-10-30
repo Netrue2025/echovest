@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import * as argon2 from 'argon2';
@@ -11,6 +11,7 @@ import { EmailVerification } from './verification.schema.js';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   constructor(
     private readonly users: UsersService,
     private readonly sessions: SessionsService,
@@ -20,9 +21,10 @@ export class AuthService {
   ) {}
   private codeHash(code: string) { return createHmac('sha256', this.config.getOrThrow<string>('SESSION_SECRET')).update(code).digest('hex'); }
   private async issueCode(userId: string, email: string, fullName: string) {
+    const userKey = String(userId);
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
     await this.verifications.findOneAndUpdate(
-      { userId }, { userId, codeHash: this.codeHash(code), expiresAt: new Date(Date.now() + 10 * 60_000), attempts: 0, createdAt: new Date() },
+      { userId: userKey }, { $set: { userId: userKey, codeHash: this.codeHash(code), expiresAt: new Date(Date.now() + 10 * 60_000), attempts: 0, createdAt: new Date() } },
       { upsert: true, new: true, setDefaultsOnInsert: true },
     ).exec();
     await this.emailService.sendVerificationCode(email, fullName, code);
@@ -45,9 +47,27 @@ export class AuthService {
   async verifyEmail(emailInput: string, code: string) {
     const email = emailInput.trim().toLowerCase();
     const user = await this.users.findByEmail(email);
-    if (!user || user.isEmailVerified) throw new UnauthorizedException('This verification code is invalid or expired.');
-    const record = await this.verifications.findOne({ userId: user._id }).select('+codeHash').exec();
-    if (!record || record.expiresAt.getTime() <= Date.now() || record.attempts >= 5) throw new UnauthorizedException('This verification code is invalid or expired. Request a new code.');
+    if (!user) {
+      this.logger.warn('Email verification rejected: no account found for submitted email.');
+      throw new UnauthorizedException('This verification code is invalid or expired.');
+    }
+    if (user.isEmailVerified) {
+      this.logger.warn('Email verification rejected: account is already verified.');
+      throw new UnauthorizedException('This verification code is invalid or expired.');
+    }
+    const record = await this.verifications.findOne({ userId: String(user._id) }).select('+codeHash').exec();
+    if (!record) {
+      this.logger.warn('Email verification rejected: no pending code record exists.');
+      throw new UnauthorizedException('This verification code is invalid or expired. Request a new code.');
+    }
+    if (record.expiresAt.getTime() <= Date.now()) {
+      this.logger.warn('Email verification rejected: pending code has expired.');
+      throw new UnauthorizedException('This verification code is invalid or expired. Request a new code.');
+    }
+    if (record.attempts >= 5) {
+      this.logger.warn('Email verification rejected: pending code exceeded the five-attempt limit.');
+      throw new UnauthorizedException('This verification code is invalid or expired. Request a new code.');
+    }
     const expected = Buffer.from(record.codeHash, 'hex');
     const received = Buffer.from(this.codeHash(code), 'hex');
     if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
@@ -64,7 +84,7 @@ export class AuthService {
     const email = emailInput.trim().toLowerCase();
     const user = await this.users.findByEmail(email);
     if (!user || user.isEmailVerified) return { message: 'If the account can receive a code, one will be sent shortly.' };
-    const prior = await this.verifications.findOne({ userId: user._id }).exec();
+    const prior = await this.verifications.findOne({ userId: String(user._id) }).exec();
     if (prior && Date.now() - prior.createdAt.getTime() < 60_000) return { message: 'If the account can receive a code, one will be sent shortly.' };
     try { await this.issueCode(String(user._id), email, user.fullName); }
     catch { return { message: 'If the account can receive a code, one will be sent shortly.' }; }
