@@ -25,12 +25,25 @@ function AppVisual({ type }: { type: string }) {
 export function WelcomeCarousel() {
   const [active, setActive] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [installed, setInstalled] = useState(false);
+  useEffect(() => {
+    const updateInstalled = () => setInstalled(window.matchMedia("(display-mode: standalone)").matches ||
+      ("standalone" in window.navigator && Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone)));
+    updateInstalled();
+    const displayMode = window.matchMedia("(display-mode: standalone)");
+    window.addEventListener("appinstalled", updateInstalled);
+    displayMode.addEventListener("change", updateInstalled);
+    return () => {
+      window.removeEventListener("appinstalled", updateInstalled);
+      displayMode.removeEventListener("change", updateInstalled);
+    };
+  }, []);
   useEffect(() => { if (paused) return; const timer = window.setInterval(() => setActive((current) => (current + 1) % slides.length), 5600); return () => window.clearInterval(timer); }, [paused]);
   const slide = slides[active];
   return <main className="welcome-page" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocusCapture={() => setPaused(true)} onBlurCapture={() => setPaused(false)}>
     <div className="welcome-shell"><header className="welcome-header"><a href="#top" className="welcome-logo" aria-label="EchoVest home"><span className="welcome-logo-mark">E</span>EchoVest</a><span className="welcome-menu-label">{active + 1} / {slides.length}</span></header>
       <div className="welcome-track" key={active} aria-live="polite"><div className="welcome-copy"><div className="welcome-eyebrow">{slide.eyebrow}</div><h1>{slide.title}</h1><p>{slide.copy}</p><div className="welcome-dots" aria-label="Welcome slides">{slides.map((item, index) => <button key={item.eyebrow} type="button" className={index === active ? "active" : ""} onClick={() => setActive(index)} aria-label={`Show slide ${index + 1}`} aria-current={index === active ? "true" : undefined} />)}</div></div><div className="welcome-visual-wrap"><AppVisual type={slide.visual} /></div></div>
-      <div className="welcome-actions"><a className="welcome-primary" href="#get-started">Get started</a><a className="welcome-secondary" href="#sign-in">Sign in</a></div>
+      <div className="welcome-actions">{installed ? <><a className="welcome-primary" href="/sign-up">Get started</a><a className="welcome-secondary" href="/sign-in">Sign in</a></> : <><a className="welcome-primary" href="/#download">Install EchoVest first</a><a className="welcome-secondary" href="/">Back to landing page</a></>}</div>
     </div>
   </main>;
 }

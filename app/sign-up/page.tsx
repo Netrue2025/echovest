@@ -1,5 +1,6 @@
 import { SignUpPage } from "../../pwa/AuthPages";
+import { InstalledAppGate } from "../../components/InstalledAppGate";
 
 export default function SignUpRoute() {
-  return <SignUpPage />;
+  return <InstalledAppGate><SignUpPage /></InstalledAppGate>;
 }

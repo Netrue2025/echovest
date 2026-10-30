@@ -333,6 +333,67 @@ body{overflow-x:hidden}@media(max-width:900px){.grid-lines>.container{grid-templ
   .dash-page-mobile-notification svg{stroke-width:1.8}
   .dash-page-mobile-notification i{position:absolute;top:6px;right:6px;width:7px;height:7px;border:1px solid #fff;border-radius:50%;background:#F0B90B}
 }
+.landing-hero-layout{max-width:1180px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:56px;align-items:center}
+.hero-product-art{position:relative;order:2;width:min(100%,560px);justify-self:end;overflow:hidden;aspect-ratio:1;border:1px solid #E6E9EC;border-radius:30px;background:#F3F5F7;box-shadow:0 28px 70px #0003}
+.hero-product-art>img{width:100%;height:100%;display:block;object-fit:cover;object-position:center}
+.hero-market-pill{position:absolute;left:22px;bottom:21px;display:inline-flex;align-items:center;gap:8px;padding:10px 13px;border:1px solid #E1E7E4;border-radius:999px;background:#FFFFFFE8;color:#38454A;box-shadow:0 6px 18px #202B2914;font-size:12px;font-weight:650;backdrop-filter:blur(10px)}
+.hero-market-pill i{width:7px;height:7px;border-radius:50%;background:#18A96B;box-shadow:0 0 0 3px #18A96B1C}
+.hero-market-pill b{color:#138452}
+.hero-copy{order:1}
+.landing-live-label{display:inline-block;padding:8px 12px;border:1px solid #2B3139;border-radius:999px;letter-spacing:0;text-transform:none}
+.landing-hero-title{font-size:clamp(42px,6vw,72px);line-height:1.03;letter-spacing:-.05em;margin:22px 0 18px}
+.landing-hero-title span{color:#F0B90B}
+.landing-hero-description{font-size:18px;line-height:1.6;max-width:570px;margin:0 0 28px;color:#848E9C}
+.landing-install-card{padding:18px;max-width:490px;border:1px solid #343A40;border-radius:15px;background:#171B20;box-shadow:0 12px 35px #0003}
+.landing-install-copy{display:flex;align-items:center;gap:11px}
+.landing-install-icon{display:grid;place-items:center;width:38px;height:38px;flex:0 0 auto;border-radius:12px;background:#F0B90B1C;color:#F0B90B}
+.landing-install-copy>div{display:grid;gap:4px;min-width:0}
+.landing-install-copy strong{color:#F1F3F5;font-size:14px}
+.landing-install-copy small{color:#99A1AA;font-size:11px;line-height:1.45}
+.landing-install-actions{display:grid;grid-template-columns:1fr;gap:8px;margin-top:14px}
+.landing-install-button{min-height:44px;padding:0 13px;display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:10px;text-decoration:none;font-size:12px;font-weight:750}
+.landing-install-button{border:0;background:#F0B90B;color:#1E2329}
+.landing-install-button:disabled{opacity:.72;cursor:wait}
+.landing-install-help{display:grid;gap:4px;margin-top:12px;padding:11px 12px;border:1px solid #3A3D38;border-radius:10px;background:#20231F;color:#F2D881;font-size:12px;line-height:1.5}
+.landing-install-help span{color:#C8C4B7}
+@media(max-width:700px){
+  .landing-header{background:#FFFFFFF2!important;border-bottom-color:#E5E8EC!important;color:#1E2329;backdrop-filter:blur(14px)}
+  .landing-header .site-brand{color:#1E2329!important}
+  .landing-header .theme-toggle{border-color:#E2E6EB;background:#fff;color:#47515B}
+  .landing-header .mobile-menu{color:#1E2329!important}
+  .landing-header nav>a{padding:10px 12px!important;font-size:12px!important}
+  #top.landing-hero{padding:18px 0 43px!important;background-color:#F4F6F8;background-image:radial-gradient(ellipse at 50% 14%,#FFFFFF 0%,#F6F7F9 55%,#EEF1F4 100%);color:#1E2329}
+  #top.landing-hero.grid-lines{background-image:radial-gradient(ellipse at 50% 14%,#FFFFFF 0%,#F6F7F9 55%,#EEF1F4 100%)}
+  #top>.landing-hero-layout{width:calc(100% - 28px);display:grid!important;grid-template-columns:minmax(0,1fr);gap:18px}
+  .hero-product-art{order:0;width:calc(100% + 28px);max-width:none;height:min(90vw,360px);margin:-18px -14px 0;aspect-ratio:auto;border:0;border-radius:0 0 28px 28px;box-shadow:none}
+  .hero-product-art>img{object-position:center 48%}
+  .hero-market-pill{left:17px;bottom:16px;padding:8px 11px;font-size:11px}
+  .hero-copy{order:1;padding:0 2px}
+  .landing-live-label i{width:7px;height:7px;border-radius:50%;background:#18A96B;box-shadow:0 0 0 3px #18A96B1C}
+  .landing-live-label{display:inline-flex;align-items:center;gap:8px;padding:0;border:0;color:#68747E;font-size:10px;font-weight:750;letter-spacing:.09em;text-transform:uppercase}
+  .landing-hero-title{margin:13px 0 11px;color:#1E2329;font-size:clamp(36px,10.2vw,47px);line-height:1.01;letter-spacing:-.055em}
+  .landing-hero-title span{color:#0E8D62}
+  .landing-hero-description{max-width:430px;margin:0 0 19px;color:#6E7881;font-size:14px;line-height:1.55}
+  .landing-install-card{padding:14px;border-color:#E3E7E9;background:#fff;box-shadow:0 10px 28px #1E23290C}
+  .landing-install-icon{background:#FFF5D5;color:#8A6800}
+  .landing-install-copy strong{color:#242B30;font-size:13px}
+  .landing-install-copy small{color:#77818A;font-size:11px}
+  .landing-install-actions{grid-template-columns:1fr;gap:7px;margin-top:12px}
+  .landing-install-button{min-height:43px;padding:0 10px;font-size:11px}
+  .landing-install-help{border-color:#F0E0AE;background:#FFFAE9;color:#775B0D;font-size:11px}
+  .landing-install-help span{color:#726B55}
+}
+@media(max-width:360px){
+  .landing-install-button{width:100%}
+}
+.auth-install-gate{min-height:100svh;display:grid;place-items:center;padding:24px;background:#F5F6F7;color:#252A2F;font-family:Arial,Helvetica,sans-serif}
+.auth-install-gate>section{width:min(100%,420px);padding:34px 28px;border:1px solid #E7E9EB;border-radius:22px;background:#fff;box-shadow:0 18px 54px #1E23290B;text-align:center}
+.auth-install-gate-icon{width:60px;height:60px;display:grid;place-items:center;margin:0 auto 20px;overflow:hidden;border-radius:17px;background:#1E2329}
+.auth-install-gate-icon img{width:100%;height:100%;object-fit:cover}
+.auth-install-gate-kicker{margin:0 0 9px;color:#8A6A0A;font-size:10px;font-weight:800;letter-spacing:.14em}
+.auth-install-gate h1{margin:0;color:#252A2F;font-size:27px;letter-spacing:-.04em}
+.auth-install-gate p:not(.auth-install-gate-kicker){margin:12px 0 23px;color:#717A81;font-size:14px;line-height:1.55}
+.auth-install-gate a{min-height:48px;display:grid;place-items:center;border-radius:11px;background:#F0B90B;color:#1E2329;text-decoration:none;font-size:14px;font-weight:750}
 .dash-level-list .dash-level-badge{min-width:0;min-height:94px;padding:11px 7px;gap:7px;border:1px solid #E8EBEF;border-radius:14px;background:#fff;color:#47515F;font-size:11px;font-weight:700;box-shadow:0 5px 14px #1E232908}
 .dash-level-list .dash-level-badge i{width:38px;height:38px;display:grid;place-items:center;border:1px solid currentColor;border-radius:13px;background:currentColor;font-size:0}
 .dash-level-list .dash-level-badge i svg{color:#fff;filter:drop-shadow(0 2px 2px #0002)}

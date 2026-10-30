@@ -1,3 +1,67 @@
 "use client";
-import { CheckCircle2, Smartphone } from "lucide-react"; import { FormEvent, useEffect, useState } from "react"; import { countries, Country } from "../lib/countries"; import { siteConfig } from "../config/site"; import { CountrySelect } from "./CountrySelect";
-export function DownloadGate(){const [country,setCountry]=useState<Country>(countries[0]),[phone,setPhone]=useState(''),[error,setError]=useState(''),[unlocked,setUnlocked]=useState(false),[loading,setLoading]=useState(false),[platform,setPlatform]=useState('');useEffect(()=>{setUnlocked(localStorage.getItem('echovest_unlocked')==='1');setPlatform(/android/i.test(navigator.userAgent)?'android':/iphone|ipad/i.test(navigator.userAgent)?'ios':'')},[]);async function submit(e:FormEvent){e.preventDefault();if(!/^\d{6,14}$/.test(phone)){setError('Enter 6–14 digits only.');return}setError('');setLoading(true);try{const res=await fetch('/api/leads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({country:country.code,dialCode:country.dialCode,phone,userAgent:navigator.userAgent})});if(!res.ok)throw new Error();localStorage.setItem('echovest_unlocked','1');setUnlocked(true)}catch{setError('Something went wrong. Please try again.')}finally{setLoading(false)}}return <div id="download" className="surface" style={{padding:24,maxWidth:490}}>{unlocked?<div style={{display:'grid',gap:14}}><CheckCircle2 color="#0ECB81"/><h2 style={{margin:0,fontSize:22}}>Your downloads are ready</h2><p className="muted" style={{margin:0}}>Choose the version for your device and get started.</p></div>:<form onSubmit={submit} style={{display:'grid',gap:14}}><h2 style={{margin:0,fontSize:22}}>Enter your phone number to download</h2><p className="muted" style={{margin:0,fontSize:14}}>Pick your country and type your number. The download buttons unlock as soon as it is saved.</p><CountrySelect value={country} onChange={setCountry}/><label><span className="muted" style={{fontSize:13}}>Phone number</span><div style={{display:'flex',marginTop:6}}><span style={{padding:'12px',background:'#2B3139',borderRadius:'8px 0 0 8px',color:'#EAECEF'}}>{country.dialCode}</span><input className="focus-ring" inputMode="numeric" value={phone} onChange={e=>setPhone(e.target.value.replace(/\D/g,''))} aria-invalid={!!error} placeholder="Phone number" style={{flex:1,minWidth:0,padding:12,background:'#0B0E11',border:'1px solid #2B3139',borderRadius:'0 8px 8px 0',color:'#EAECEF'}}/></div></label>{error&&<div role="alert" style={{color:'#F6465D',fontSize:13}}>{error}</div>}<button className="focus-ring" disabled={loading} style={{padding:13,border:0,borderRadius:8,background:'#F0B90B',color:'#1E2329',fontWeight:700}}>{loading?'Saving…':'Unlock the download'}</button><small className="muted">We use your number to keep track of installs and to reach you about the app. Nothing else.</small></form>}<div style={{display:'grid',gap:8,marginTop:20}}><a className="focus-ring" aria-disabled={!unlocked} href={unlocked?siteConfig.apkUrl||'#':undefined} onClick={e=>{if(!unlocked||!siteConfig.apkUrl)e.preventDefault()}} style={{opacity:unlocked?.95:.45,pointerEvents:unlocked?'auto':'none',padding:'12px 14px',background:'#F0B90B',color:'#1E2329',borderRadius:8,textDecoration:'none',fontWeight:700,textAlign:'center'}}><Smartphone size={16} style={{verticalAlign:'middle',marginRight:8}}/>Download for Android (APK)<small style={{display:'block',fontWeight:400,fontSize:11,marginTop:3}}>{siteConfig.apkSize} · Android 8.0+ · Updated {siteConfig.apkUpdated}</small></a><div style={{display:'flex',gap:8}}>{[['App Store',siteConfig.appStoreUrl,'ios'],['Google Play',siteConfig.googlePlayUrl,'android']].map(([label,url,kind])=><a key={label} className="focus-ring" href={unlocked&&url?url:undefined} onClick={e=>{if(!unlocked||!url)e.preventDefault()}} style={{flex:1,opacity:unlocked?.8:.4,pointerEvents:unlocked&&url?'auto':'none',padding:'10px 4px',border:'1px solid #2B3139',borderRadius:8,textAlign:'center',textDecoration:'none',color:'#EAECEF',fontSize:12,background:platform===kind?'#2B3139':'transparent'}}>{label}<small style={{display:'block',color:'#848E9C'}}>{url?'Download':'Coming soon'}</small></a>)}</div>{!unlocked&&<small className="muted" style={{textAlign:'center'}}>Enter your phone number above first.</small>}</div></div>}
+
+import { Download, Smartphone } from "lucide-react";
+import { useEffect, useState } from "react";
+
+type InstallPrompt = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+};
+
+export function DownloadGate() {
+  const [installPrompt, setInstallPrompt] = useState<InstallPrompt | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpText, setHelpText] = useState("");
+  const [installed, setInstalled] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const isStandalone = window.matchMedia("(display-mode: standalone)").matches ||
+      ("standalone" in window.navigator && Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone));
+    setInstalled(isStandalone);
+    const onBeforeInstall = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as InstallPrompt);
+    };
+    const onInstalled = () => { setInstalled(true); setInstallPrompt(null); setHelpOpen(false); };
+    window.addEventListener("beforeinstallprompt", onBeforeInstall);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstall);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
+
+  async function install() {
+    if (!installPrompt) {
+      const userAgent = navigator.userAgent;
+      const guidance = installed
+        ? "EchoVest is installed. Launch it from your home screen to continue."
+        : !window.isSecureContext
+        ? "Open the secure HTTPS version of EchoVest to install it. Browsers block PWA installation from a local network address."
+        : /iphone|ipad/i.test(userAgent)
+          ? "In Safari, tap Share, then Add to Home Screen."
+          : "Open your browser menu and choose Install app or Add to Home screen.";
+      setHelpText(guidance);
+      setHelpOpen((open) => !open);
+      return;
+    }
+    setBusy(true);
+    try {
+      await installPrompt.prompt();
+      const result = await installPrompt.userChoice;
+      if (result.outcome === "accepted") setInstalled(true);
+      setInstallPrompt(null);
+    } finally { setBusy(false); }
+  }
+
+  return <div className="landing-install-card" id="download">
+    <div className="landing-install-copy"><span className="landing-install-icon"><Smartphone size={18} /></span><div><strong>{installed ? "EchoVest is installed" : "Get EchoVest on your phone"}</strong><small>{installed ? "Launch it from your home screen to continue." : "Install the app-like PWA directly from this page."}</small></div></div>
+    <div className="landing-install-actions">
+      <button type="button" className="landing-install-button" onClick={install} disabled={busy} aria-expanded={helpOpen}>
+        <Download size={17} />{busy ? "Opening install…" : installPrompt ? "Install EchoVest" : installed ? "How to open" : "How to install"}
+      </button>
+    </div>
+    {helpOpen && <div className="landing-install-help" role="status"><strong>Install on this device</strong><span>{helpText}</span></div>}
+  </div>;
+}
