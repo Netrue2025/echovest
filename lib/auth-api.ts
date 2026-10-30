@@ -2,14 +2,16 @@ export type AuthUser = { id: string; fullName: string; email: string; role: stri
 
 function apiBase() {
   if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '');
+  if (process.env.NODE_ENV === 'production') throw new Error('The account service URL is not configured. Set NEXT_PUBLIC_API_URL and rebuild the frontend.');
   if (typeof window !== 'undefined') return `http://${window.location.hostname}:4000`;
   return 'http://localhost:4000';
 }
 
 export async function authRequest<T>(path: string, payload?: unknown): Promise<T> {
+  const url = `${apiBase()}/auth/${path}`;
   let response: Response;
   try {
-    response = await fetch(`${apiBase()}/auth/${path}`, {
+    response = await fetch(url, {
       method: payload === undefined ? 'GET' : 'POST',
       credentials: 'include',
       headers: payload === undefined ? undefined : { 'Content-Type': 'application/json' },

@@ -6,14 +6,17 @@
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
+  "engines": {
+    "node": "^22.22.3 || ^24.15.0 || >=26.0.0"
+  },
   "scripts": {
+    "start": "node dist/main.js",
     "build": "nest build",
     "deploy": "nest deploy",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
-    "start": "nest start --env-file .env",
     "start:dev": "nest start --watch --env-file .env",
     "start:debug": "nest start --debug --watch --env-file .env",
-    "start:prod": "node dist/main",
+    "start:prod": "node dist/main.js",
     "lint": "oxlint --type-aware src/ test/",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -23,9 +26,9 @@
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",
-    "@nestjs/config": "^4.0.4",
+    "@nestjs/config": "^12.0.1",
     "@nestjs/core": "^12.0.1",
-    "@nestjs/mongoose": "^11.0.4",
+    "@nestjs/mongoose": "^12.0.0",
     "@nestjs/observe": "^0.3.0",
     "@nestjs/platform-express": "^12.0.1",
     "argon2": "^0.41.1",

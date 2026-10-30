@@ -10,6 +10,7 @@ async function bootstrap() {
   app.enableCors({ origin: origins, credentials: true, methods: ['GET', 'POST', 'OPTIONS'], allowedHeaders: ['Content-Type'] });
   app.use(cookieParser());
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }));
-  await app.listen(Number(process.env.BACKEND_PORT ?? 4000), '0.0.0.0');
+  const port = Number(process.env.PORT ?? process.env.BACKEND_PORT ?? 4000);
+  await app.listen(port, '0.0.0.0');
 }
 void bootstrap();

@@ -24,6 +24,22 @@ The API listens on `0.0.0.0:4000`. From the frontend folder, run `npm run dev --
 
 For phone testing, both devices must be on the same Wi-Fi, Windows Firewall must allow inbound TCP 4000, and the PC's LAN origin must appear in `FRONTEND_URL`. Cookies use `Secure` in production and are intentionally non-secure over local HTTP during development.
 
+## Deploy the backend to Railway
+
+Create a separate Railway service from this repository and set its **Root Directory** to `/backend`. Railway can then install from this package, run `npm run build`, and use `npm start` to launch the compiled API. The API binds to Railway's injected `PORT` and `0.0.0.0`.
+
+Add these variables to the backend service in Railway (do not upload `.env`):
+
+- `MONGODB_URI`: production MongoDB Atlas connection string. Ensure Atlas Network Access permits connections from Railway.
+- `RESEND_API_KEY`: Resend API key for the account that owns the verified sender domain.
+- `EMAIL_FROM`: valid sender, for example `EchoVest <verify@your-domain.com>`.
+- `FRONTEND_URL`: exact public frontend origin, for example `https://your-frontend.up.railway.app` (no path or trailing slash).
+- `SESSION_SECRET`: a unique random secret of at least 32 characters.
+- `NODE_ENV`: `production`.
+- `SESSION_SAME_SITE`: `none` when the frontend and API are on different sites; use HTTPS. `lax` is suitable when both are same-site.
+
+Generate a public domain for the backend service. In the frontend Railway service, set `NEXT_PUBLIC_API_URL` to that backend's HTTPS origin, without `/auth`, then redeploy the frontend because Next.js embeds this public variable during its build.
+
 ## Routes
 
 - `POST /auth/signup` — create an unverified account and send a six-digit OTP.
