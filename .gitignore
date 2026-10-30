@@ -3,4 +3,6 @@ node_modules/
 out/
 .env*
 !.env.example
+atlas-credentials.env
+*.tsbuildinfo
 npm-debug.log*

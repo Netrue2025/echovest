@@ -1,0 +1,24 @@
+export type AuthUser = { id: string; fullName: string; email: string; role: string };
+
+function apiBase() {
+  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '');
+  if (typeof window !== 'undefined') return `http://${window.location.hostname}:4000`;
+  return 'http://localhost:4000';
+}
+
+export async function authRequest<T>(path: string, payload?: unknown): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${apiBase()}/auth/${path}`, {
+      method: payload === undefined ? 'GET' : 'POST',
+      credentials: 'include',
+      headers: payload === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: payload === undefined ? undefined : JSON.stringify(payload),
+    });
+  } catch {
+    throw new Error('Cannot reach the EchoVest account service. Start the backend and try again.');
+  }
+  const data = await response.json().catch(() => ({})) as { message?: string | string[]; user?: AuthUser };
+  if (!response.ok) throw new Error(Array.isArray(data.message) ? data.message[0] : data.message || 'Request failed. Please try again.');
+  return data as T;
+}

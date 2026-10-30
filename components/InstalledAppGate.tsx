@@ -9,14 +9,22 @@ function isStandaloneApp() {
 }
 
 export function InstalledAppGate({ children }: { children: ReactNode }) {
+  const development = process.env.NODE_ENV === "development";
   const [checked, setChecked] = useState(false);
   const [installed, setInstalled] = useState(false);
 
   useEffect(() => {
+    if (development) {
+      setInstalled(true);
+      setChecked(true);
+      return;
+    }
     setInstalled(isStandaloneApp());
     setChecked(true);
-  }, []);
+  }, [development]);
 
+  // Local routes stay directly testable; production continues to require the installed PWA.
+  if (development) return children;
   if (!checked) return <main className="auth-install-gate" aria-label="Loading EchoVest" />;
   if (installed) return children;
 

@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { BtcMarketChart } from "../components/BtcMarketChart";
 import { DepositView } from "./DepositView";
 import { WithdrawalView } from "./WithdrawalView";
+import { authRequest, AuthUser } from "../lib/auth-api";
 
 const navItems = [
   { id: "overview", label: "Overview", icon: Home },
@@ -52,9 +53,9 @@ function ActivityList() {
   </div>)}</div>;
 }
 
-function Overview({ email }: { email: string }) {
+function Overview({ email, name }: { email: string; name: string }) {
   return <>
-    <MobileHome email={email} />
+    <MobileHome email={email} name={name} />
     <div className="dash-desktop-overview">
     <PageHeading title="Your overview" subtitle="A quick look at your wallet and trading activity." />
     <section className="dash-stat-grid" aria-label="Account summary">
@@ -77,8 +78,8 @@ function Overview({ email }: { email: string }) {
   </>;
 }
 
-function MobileHome({ email }: { email: string }) {
-  const firstName = email.split("@")[0]?.split(/[._-]/)[0] || "there";
+function MobileHome({ email, name }: { email: string; name: string }) {
+  const firstName = name.split(/\s+/)[0] || email.split("@")[0]?.split(/[._-]/)[0] || "there";
   return <section className="dash-mobile-home" aria-label="Home overview">
     <header className="dash-mobile-greeting"><div><p>Hello, <strong>{firstName}</strong> <span aria-hidden="true">👋</span></p><small>Welcome back!</small></div><div className="dash-mobile-greeting-actions"><a href="/dashboard?view=levels" className="dash-mobile-level"><Award size={14} /> Blue</a><a href="/dashboard?view=notifications" className="dash-mobile-notification" aria-label="Open notifications"><Bell size={22} /><i /></a></div></header>
     <article className="dash-mobile-balance">
@@ -133,8 +134,8 @@ function TransactionsView() {
   return <><PageHeading title="Transactions" subtitle="Review example deposits, allocations, and referral earnings." /><article className="dash-panel dash-full-panel"><div className="dash-panel-heading"><div><h2>All activity</h2><p>Example entries · preview only</p></div><button type="button" className="dash-filter-button">All activity <ChevronDown size={15} /></button></div><ActivityList /></article></>;
 }
 
-function SettingsView({ email }: { email: string }) {
-  return <><PageHeading title="Settings" subtitle="Manage your account preferences." /><article className="dash-panel dash-settings-card"><div className="dash-profile-large">{email.slice(0, 1).toUpperCase() || "U"}</div><div><span className="dash-overline">SIGNED IN AS</span><h2>{email || "Demo user"}</h2><p>This is a local demo session. No account data is stored on a server.</p></div></article><article className="dash-panel dash-full-panel dash-security-note"><ShieldCheck size={20} /><div><b>Account security</b><p>Two-factor authentication and account recovery will be added when the authentication service is connected.</p></div></article><a className="dash-outline-button dash-mobile-help-link" href="/dashboard?view=help">Help &amp; support <ArrowRight size={15} /></a></>;
+function SettingsView({ email, name }: { email: string; name: string }) {
+  return <><PageHeading title="Settings" subtitle="Manage your account preferences." /><article className="dash-panel dash-settings-card"><div className="dash-profile-large">{name.slice(0, 1).toUpperCase() || email.slice(0, 1).toUpperCase() || "U"}</div><div><span className="dash-overline">SIGNED IN AS</span><h2>{name || email}</h2><p>{email}</p></div></article><article className="dash-panel dash-full-panel dash-security-note"><ShieldCheck size={20} /><div><b>Account security</b><p>Your account uses a protected server session.</p></div></article><a className="dash-outline-button dash-mobile-help-link" href="/dashboard?view=help">Help &amp; support <ArrowRight size={15} /></a></>;
 }
 
 function HelpView() {
@@ -154,29 +155,30 @@ export function Dashboard({ initialView = "overview" }: { initialView?: string }
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const [email, setEmail] = useState("");
+  const [userName, setUserName] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
   const active = navItems.some((item) => item.id === initialView) || ["settings", "help", "deposit", "withdraw", "notifications"].includes(initialView) ? initialView : "overview";
   useEffect(() => {
-    if (sessionStorage.getItem("echovest-demo-session") !== "1") {
-      router.replace("/sign-in");
-      return;
-    }
-    setEmail(sessionStorage.getItem("echovest-demo-email") ?? "");
-    setReady(true);
+    let active = true;
+    authRequest<{ user: AuthUser }>("me").then(({ user }) => {
+      if (!active) return;
+      setEmail(user.email);
+      setUserName(user.fullName);
+      setReady(true);
+    }).catch(() => { if (active) router.replace("/sign-in"); });
+    return () => { active = false; };
   }, [router]);
-  function signOut() {
-    sessionStorage.removeItem("echovest-demo-session");
-    sessionStorage.removeItem("echovest-demo-email");
-    router.replace("/sign-in");
+  async function signOut() {
+    try { await authRequest("signout", {}); } finally { router.replace("/sign-in"); }
   }
   if (!ready) return <main className="dash-loading"><span className="brand-icon-crop"><img src="/echovest-icon.png" alt="" /></span><p>Opening your preview…</p></main>;
-  const activeContent = active === "wallet" ? <WalletView /> : active === "deposit" ? <DepositView /> : active === "withdraw" ? <WithdrawalView /> : active === "notifications" ? <NotificationsView /> : active === "trading" ? <TradingView /> : active === "referrals" ? <ReferralsView /> : active === "levels" ? <LevelsView /> : active === "transactions" ? <TransactionsView /> : active === "settings" ? <SettingsView email={email} /> : active === "help" ? <HelpView /> : <Overview email={email} />;
-  const initials = email ? email.slice(0, 1).toUpperCase() : "K";
+  const activeContent = active === "wallet" ? <WalletView /> : active === "deposit" ? <DepositView /> : active === "withdraw" ? <WithdrawalView /> : active === "notifications" ? <NotificationsView /> : active === "trading" ? <TradingView /> : active === "referrals" ? <ReferralsView /> : active === "levels" ? <LevelsView /> : active === "transactions" ? <TransactionsView /> : active === "settings" ? <SettingsView email={email} name={userName} /> : active === "help" ? <HelpView /> : <Overview email={email} name={userName} />;
+  const initials = userName ? userName.slice(0, 1).toUpperCase() : email ? email.slice(0, 1).toUpperCase() : "U";
   return <div className="dash-app">
     <aside className="dash-sidebar"><Brand /><NavLinks active={active} /><div className="dash-sidebar-bottom"><div className="dash-help-card"><span><ShieldCheck size={17} /></span><b>Your account, protected</b><small>Security features are coming soon.</small></div><button type="button" className="dash-signout" onClick={signOut}><LogOut size={18} />Sign out</button></div></aside>
     {mobileOpen && <div className="dash-mobile-backdrop" onClick={() => setMobileOpen(false)} />}
     <aside className={`dash-mobile-sidebar ${mobileOpen ? "open" : ""}`} aria-hidden={!mobileOpen}><div className="dash-mobile-sidebar-head"><Brand /><button type="button" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={20} /></button></div><NavLinks active={active} onNavigate={() => setMobileOpen(false)} /><button type="button" className="dash-signout" onClick={signOut}><LogOut size={18} />Sign out</button></aside>
-    <div className="dash-main"><header className="dash-topbar"><button type="button" className="dash-mobile-menu" aria-label="Open navigation" onClick={() => setMobileOpen(true)}><Menu size={21} /></button><div className="dash-crumb">Workspace <span>/</span> {formatView(active)}</div><div className="dash-topbar-actions"><span className="dash-topbar-demo">Demo preview</span><button type="button" className="dash-icon-button" aria-label="Notifications"><Bell size={18} /><i /></button><span className="dash-user-separator" /><a className="dash-user-button" href="/dashboard?view=settings"><span className="dash-user-avatar">{initials}</span><span className="dash-user-name">{email.split("@")[0] || "Demo user"}</span><ChevronDown size={15} /></a></div></header>
+    <div className="dash-main"><header className="dash-topbar"><button type="button" className="dash-mobile-menu" aria-label="Open navigation" onClick={() => setMobileOpen(true)}><Menu size={21} /></button><div className="dash-crumb">Workspace <span>/</span> {formatView(active)}</div><div className="dash-topbar-actions"><span className="dash-topbar-demo">Demo preview</span><button type="button" className="dash-icon-button" aria-label="Notifications"><Bell size={18} /><i /></button><span className="dash-user-separator" /><a className="dash-user-button" href="/dashboard?view=settings"><span className="dash-user-avatar">{initials}</span><span className="dash-user-name">{userName || email}</span><ChevronDown size={15} /></a></div></header>
       <main className="dash-page"><div className="dash-hello"><div><p>Good to see you</p><h2>Welcome back<span>.</span></h2></div><p className="dash-preview-caption">All figures shown are sample data</p></div>{activeContent}</main>
       <nav className="dash-bottom-nav" aria-label="Quick navigation">{[{ id: "overview", label: "Home", icon: Home }, { id: "trading", label: "Trade", icon: Zap }, { id: "wallet", label: "Vault", icon: ShieldCheck }, { id: "transactions", label: "History", icon: ReceiptText }, { id: "settings", label: "Profile", icon: User }].map(({ id, label, icon: Icon }) => <a href={id === "overview" ? "/dashboard" : `/dashboard?view=${id}`} key={id} className={active === id ? "active" : ""} aria-current={active === id ? "page" : undefined}><Icon size={20} /><span>{label}</span></a>)}</nav>
     </div>

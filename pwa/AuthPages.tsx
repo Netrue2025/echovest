@@ -4,6 +4,7 @@ import { Eye, EyeOff } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { countries } from "../lib/countries";
+import { authRequest } from "../lib/auth-api";
 
 function PasswordField({ id, label, placeholder, value, onChange, autoComplete }: {
   id: string; label: string; placeholder: string; value: string; onChange: (value: string) => void; autoComplete: string;
@@ -36,9 +37,10 @@ export function SignUpPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [country, setCountry] = useState("NG");
   const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
   const selectedCountry = useMemo(() => countries.find((item) => item.code === country) ?? countries[0], [country]);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!/[A-Z]/.test(password) || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
       setNotice("Please meet all password requirements before continuing.");
@@ -49,8 +51,16 @@ export function SignUpPage() {
       return;
     }
     const formData = new FormData(event.currentTarget);
-    sessionStorage.setItem("echovest-pending-email", String(formData.get("email") ?? ""));
-    router.push("/verify-email");
+    setBusy(true);
+    setNotice("");
+    try {
+      const email = String(formData.get("email") ?? "").trim().toLowerCase();
+      await authRequest("signup", { fullName: formData.get("name"), email, password, passwordConfirmation: confirmPassword });
+      sessionStorage.setItem("echovest-pending-email", email);
+      router.push("/verify-email");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Unable to create your account. Please try again.");
+    } finally { setBusy(false); }
   }
 
   return <main className="auth-page">
@@ -71,7 +81,7 @@ export function SignUpPage() {
         <PasswordField id="confirm-password" label="Confirm password" placeholder="Confirm your password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" />
         <div className="auth-field"><label htmlFor="referral-code">Referral code <span className="auth-optional">Optional</span></label><input id="referral-code" name="referralCode" type="text" autoComplete="off" placeholder="Enter a referral code" /></div>
         <label className="auth-consent"><input type="checkbox" name="terms" required /><span>I agree to the EchoVest terms and privacy policy.</span></label>
-        <button className="auth-submit" type="submit">Create account</button>
+        <button className="auth-submit" type="submit" disabled={busy}>{busy ? "Creating account…" : "Create account"}</button>
         {notice && <p className="auth-notice" role="status">{notice}</p>}
       </form>
       <p className="auth-switch">Already have an account? <a href="/sign-in">Sign in</a></p>
@@ -83,12 +93,18 @@ export function SignInPage() {
   const router = useRouter();
   const [password, setPassword] = useState("");
   const [notice, setNotice] = useState("");
-  function submit(event: FormEvent<HTMLFormElement>) {
+  const [busy, setBusy] = useState(false);
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    sessionStorage.setItem("echovest-demo-session", "1");
-    sessionStorage.setItem("echovest-demo-email", String(formData.get("email") ?? ""));
-    router.push("/dashboard");
+    setBusy(true);
+    setNotice("");
+    try {
+      await authRequest("signin", { email: String(formData.get("email") ?? "").trim().toLowerCase(), password });
+      router.push("/dashboard");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Unable to sign in. Please try again.");
+    } finally { setBusy(false); }
   }
   return <main className="auth-page auth-page-login">
     <section className="auth-card auth-card-login" aria-labelledby="signin-title">
@@ -97,9 +113,8 @@ export function SignInPage() {
         <div className="auth-field"><label htmlFor="signin-email">Email</label><input id="signin-email" name="email" type="email" autoComplete="email" placeholder="Enter your email" required /></div>
         <PasswordField id="signin-password" label="Password" placeholder="Enter your password" value={password} onChange={setPassword} autoComplete="current-password" />
         <div className="auth-login-options"><label className="auth-remember"><input type="checkbox" name="remember" /><span>Remember me</span></label><button type="button" className="auth-text-button" onClick={() => setNotice("Password recovery will be available when account services are connected.")}>Forgot password?</button></div>
-        <button className="auth-submit" type="submit">Sign in</button>
+        <button className="auth-submit" type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
         {notice && <p className="auth-notice" role="status">{notice}</p>}
-        <p className="auth-demo-hint">Demo preview: use any valid email and password to open the sample dashboard.</p>
       </form>
       <p className="auth-switch">New to EchoVest? <a href="/sign-up">Create an account</a></p>
     </section>
