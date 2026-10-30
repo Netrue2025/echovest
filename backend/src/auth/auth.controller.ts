@@ -9,8 +9,9 @@ import { SESSION_COOKIE, SessionsService } from '../sessions/sessions.service.js
 
 const cookieOptions = (expires?: Date) => {
   const configured = process.env.SESSION_SAME_SITE;
-  const sameSite: 'none' | 'strict' | 'lax' = configured === 'none' || configured === 'strict' ? configured : 'lax';
-  return { httpOnly: true, secure: process.env.NODE_ENV === 'production' || sameSite === 'none', sameSite, path: '/', ...(expires ? { expires } : {}) };
+  const production = process.env.NODE_ENV === 'production';
+  const sameSite: 'none' | 'strict' | 'lax' = configured === 'none' || configured === 'strict' || configured === 'lax' ? configured : production ? 'none' : 'lax';
+  return { httpOnly: true, secure: production || sameSite === 'none', sameSite, path: '/', ...(expires ? { expires } : {}) };
 };
 
 @Controller('auth')
