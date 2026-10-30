@@ -2,11 +2,14 @@
 
 import {
   ArrowDownLeft, ArrowRight, ArrowUpRight, Award, Bell, Check, ChevronDown,
-  CircleHelp, Copy, Home, LogOut, Menu, ReceiptText, Settings, ShieldCheck,
-  Sparkles, Users, Wallet, X, Zap,
+  CircleHelp, Copy, Crown, Gem, Home, LogOut, Medal, Menu, ReceiptText, Settings, ShieldCheck,
+  Sparkles, Users, Wallet, X, Zap, User, Plus,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { BtcMarketChart } from "../components/BtcMarketChart";
+import { DepositView } from "./DepositView";
+import { WithdrawalView } from "./WithdrawalView";
 
 const navItems = [
   { id: "overview", label: "Overview", icon: Home },
@@ -16,7 +19,7 @@ const navItems = [
   { id: "levels", label: "My level", icon: Award },
   { id: "transactions", label: "Transactions", icon: ReceiptText },
 ];
-const formatView = (id: string) => navItems.find((item) => item.id === id)?.label ?? (id === "help" ? "Help & support" : "Settings");
+const formatView = (id: string) => navItems.find((item) => item.id === id)?.label ?? (id === "help" ? "Help & support" : id === "notifications" ? "Notifications" : id === "deposit" ? "Deposit" : id === "withdraw" ? "Withdraw" : "Settings");
 const recentActivity = [
   { title: "Deposit credited", detail: "USDT · Today, 10:42 AM", amount: "+$500.00", type: "in", state: "Completed" },
   { title: "Copy allocation", detail: "BTC Trend Strategy · Yesterday", amount: "−$120.00", type: "out", state: "Active" },
@@ -38,7 +41,7 @@ function NavLinks({ active, onNavigate }: { active: string; onNavigate?: () => v
 }
 
 function PageHeading({ title, subtitle }: { title: string; subtitle: string }) {
-  return <div className="dash-page-heading"><div><p className="dash-kicker">YOUR ACCOUNT</p><h1>{title}</h1><p className="dash-subtitle">{subtitle}</p></div><span className="dash-preview-tag"><i /> Preview data</span></div>;
+  return <div className="dash-page-heading"><div><p className="dash-kicker">YOUR ACCOUNT</p><h1>{title}</h1><p className="dash-subtitle">{subtitle}</p></div><span className="dash-preview-tag"><i /> Preview data</span><a className="dash-page-mobile-notification" href="/dashboard?view=notifications" aria-label="Open notifications"><Bell size={21} /><i /></a></div>;
 }
 
 function ActivityList() {
@@ -49,8 +52,10 @@ function ActivityList() {
   </div>)}</div>;
 }
 
-function Overview() {
+function Overview({ email }: { email: string }) {
   return <>
+    <MobileHome email={email} />
+    <div className="dash-desktop-overview">
     <PageHeading title="Your overview" subtitle="A quick look at your wallet and trading activity." />
     <section className="dash-stat-grid" aria-label="Account summary">
       <article className="dash-balance-card"><div className="dash-balance-top"><span>Total wallet balance</span><Wallet size={19} /></div><strong>$12,480<span>.50</span></strong><p><span className="dash-sample-dot" /> Sample account value</p><div className="dash-balance-footer"><span>Wallet</span><span>Referral earnings included</span></div></article>
@@ -68,11 +73,36 @@ function Overview() {
       </article>
     </section>
     <div className="dash-disclosure"><ShieldCheck size={17} /><span>Copy trading involves risk, including the potential loss of funds. Past performance does not guarantee future results.</span></div>
+    </div>
   </>;
 }
 
+function MobileHome({ email }: { email: string }) {
+  const firstName = email.split("@")[0]?.split(/[._-]/)[0] || "there";
+  return <section className="dash-mobile-home" aria-label="Home overview">
+    <header className="dash-mobile-greeting"><div><p>Hello, <strong>{firstName}</strong> <span aria-hidden="true">👋</span></p><small>Welcome back!</small></div><div className="dash-mobile-greeting-actions"><a href="/dashboard?view=levels" className="dash-mobile-level"><Award size={14} /> Blue</a><a href="/dashboard?view=notifications" className="dash-mobile-notification" aria-label="Open notifications"><Bell size={22} /><i /></a></div></header>
+    <article className="dash-mobile-balance">
+      <div className="dash-mobile-balance-head"><span>Main wallet <i>Sample</i></span><Wallet size={19} /></div>
+      <strong>$12,160<span>.50</span></strong>
+      <div className="dash-mobile-balance-actions"><a href="/dashboard?view=deposit"><Plus size={16} /> Deposit</a><a href="/dashboard?view=withdraw"><ArrowUpRight size={16} /> Withdraw</a></div>
+    </article>
+    <div className="dash-mobile-summary">
+      <a href="/dashboard?view=referrals"><span className="dash-mobile-summary-icon"><Users size={17} /></span><small>Referral earnings</small><strong>$320.00</strong></a>
+      <a href="/dashboard?view=trading"><span className="dash-mobile-summary-icon"><Zap size={17} /></span><small>Copying now</small><strong>2 strategies</strong></a>
+    </div>
+    <nav className="dash-mobile-shortcuts" aria-label="Quick actions">
+      <a href="/dashboard?view=trading"><span><Zap size={19} /></span>Trade</a>
+      <a href="/dashboard?view=wallet"><span><ShieldCheck size={19} /></span>Vault</a>
+      <a href="/dashboard?view=referrals"><span><Users size={19} /></span>Referral</a>
+    </nav>
+    <BtcMarketChart />
+    <article className="dash-mobile-activity"><div><h2>Recent activity</h2><a href="/dashboard?view=transactions">See all <ArrowRight size={14} /></a></div><div className="dash-mobile-activity-row"><span className="dash-mobile-activity-icon"><ArrowDownLeft size={17} /></span><span><b>Deposit credited</b><small>Today · Sample activity</small></span><strong>+$500.00</strong></div></article>
+    <p className="dash-mobile-disclosure">Preview figures only. Copy trading involves risk.</p>
+  </section>;
+}
+
 function WalletView() {
-  return <><PageHeading title="Wallet" subtitle="Review your balances and recent wallet activity." /><div className="dash-subview-stats"><article className="dash-panel"><span className="dash-overline">MAIN WALLET · SAMPLE</span><strong className="dash-large-value">$12,160.50</strong><p>Deposits, allocations, and withdrawals</p><button className="dash-outline-button" type="button">Deposit options <ArrowRight size={15} /></button></article><article className="dash-panel"><span className="dash-overline">REFERRAL EARNINGS · SAMPLE</span><strong className="dash-large-value">$320.00</strong><p>Shown separately from your main wallet</p><a className="dash-outline-button" href="/dashboard?view=referrals">Referral details <ArrowRight size={15} /></a></article></div><article className="dash-panel dash-full-panel"><div className="dash-panel-heading"><div><h2>Wallet activity</h2><p>Example transaction history</p></div><a href="/dashboard?view=transactions">See all <ArrowRight size={15} /></a></div><ActivityList /></article></>;
+  return <><PageHeading title="Wallet" subtitle="Review your balances and recent wallet activity." /><div className="dash-subview-stats"><article className="dash-panel"><span className="dash-overline">MAIN WALLET · SAMPLE</span><strong className="dash-large-value">$12,160.50</strong><p>Deposits, allocations, and withdrawals</p><div className="dash-wallet-actions"><a className="dash-outline-button" href="/dashboard?view=deposit">Deposit funds <ArrowRight size={15} /></a><a className="dash-outline-button" href="/dashboard?view=withdraw">Withdraw funds <ArrowRight size={15} /></a></div></article><article className="dash-panel"><span className="dash-overline">REFERRAL EARNINGS · SAMPLE</span><strong className="dash-large-value">$320.00</strong><p>Shown separately from your main wallet</p><a className="dash-outline-button" href="/dashboard?view=referrals">Referral details <ArrowRight size={15} /></a></article></div><article className="dash-panel dash-full-panel"><div className="dash-panel-heading"><div><h2>Wallet activity</h2><p>Example transaction history</p></div><a href="/dashboard?view=transactions">See all <ArrowRight size={15} /></a></div><ActivityList /></article></>;
 }
 
 function TradingView() {
@@ -89,7 +119,14 @@ function ReferralsView() {
 }
 
 function LevelsView() {
-  return <><PageHeading title="Membership level" subtitle="See your current level and learn how progression works." /><article className="dash-level-card"><div className="dash-level-emblem"><Award size={31} /></div><div><span className="dash-overline">CURRENT LEVEL</span><h2>Blue</h2><p>Blue is your starting membership level.</p></div><span className="dash-level-chip">Active</span></article><article className="dash-panel dash-full-panel dash-level-info"><h2>Level progression</h2><p>EchoVest levels are Blue, Elite, Silver, Gold, and Platinum. You can qualify through team activity or a qualifying buy-in.</p><div className="dash-level-list">{["Blue", "Elite", "Silver", "Gold", "Platinum"].map((level, index) => <span className={index === 0 ? "current" : ""} key={level}><i>{index === 0 ? <Check size={14} /> : index + 1}</i>{level}{index === 0 && <small>Current</small>}</span>)}</div><div className="dash-disclosure"><CircleHelp size={17} /><span>Specific thresholds and commission rates are being confirmed and are not displayed yet.</span></div></article></>;
+  const levels = [
+    { name: "Blue", icon: ShieldCheck, tone: "blue" },
+    { name: "Elite", icon: Medal, tone: "elite" },
+    { name: "Silver", icon: Award, tone: "silver" },
+    { name: "Gold", icon: Crown, tone: "gold" },
+    { name: "Platinum", icon: Gem, tone: "platinum" },
+  ];
+  return <><PageHeading title="Membership level" subtitle="See your current level and learn how progression works." /><article className="dash-level-card"><div className="dash-level-emblem"><ShieldCheck size={31} /></div><div><span className="dash-overline">CURRENT LEVEL</span><h2>Blue</h2><p>Blue is your starting membership level.</p></div><span className="dash-level-chip">Active</span></article><article className="dash-panel dash-full-panel dash-level-info"><h2>Level progression</h2><p>EchoVest levels are Blue, Elite, Silver, Gold, and Platinum. You can qualify through team activity or a qualifying buy-in.</p><div className="dash-level-list">{levels.map(({ name, icon: Icon, tone }, index) => <span className={`dash-level-badge ${tone}${index === 0 ? " current" : ""}`} key={name}><i><Icon size={18} strokeWidth={2} /></i><b>{name}</b>{index === 0 && <small>Current</small>}</span>)}</div><div className="dash-disclosure"><CircleHelp size={17} /><span>Specific thresholds and commission rates are being confirmed and are not displayed yet.</span></div></article></>;
 }
 
 function TransactionsView() {
@@ -97,11 +134,20 @@ function TransactionsView() {
 }
 
 function SettingsView({ email }: { email: string }) {
-  return <><PageHeading title="Settings" subtitle="Manage your account preferences." /><article className="dash-panel dash-settings-card"><div className="dash-profile-large">{email.slice(0, 1).toUpperCase() || "U"}</div><div><span className="dash-overline">SIGNED IN AS</span><h2>{email || "Demo user"}</h2><p>This is a local demo session. No account data is stored on a server.</p></div></article><article className="dash-panel dash-full-panel dash-security-note"><ShieldCheck size={20} /><div><b>Account security</b><p>Two-factor authentication and account recovery will be added when the authentication service is connected.</p></div></article></>;
+  return <><PageHeading title="Settings" subtitle="Manage your account preferences." /><article className="dash-panel dash-settings-card"><div className="dash-profile-large">{email.slice(0, 1).toUpperCase() || "U"}</div><div><span className="dash-overline">SIGNED IN AS</span><h2>{email || "Demo user"}</h2><p>This is a local demo session. No account data is stored on a server.</p></div></article><article className="dash-panel dash-full-panel dash-security-note"><ShieldCheck size={20} /><div><b>Account security</b><p>Two-factor authentication and account recovery will be added when the authentication service is connected.</p></div></article><a className="dash-outline-button dash-mobile-help-link" href="/dashboard?view=help">Help &amp; support <ArrowRight size={15} /></a></>;
 }
 
 function HelpView() {
   return <><PageHeading title="Help & support" subtitle="Quick answers for the main areas of your EchoVest account." /><div className="dash-help-grid">{[["Account access", "Sign-in and account recovery options will appear here."], ["Wallet and transactions", "Learn how deposits, withdrawals, and status updates work."], ["Copy trading", "Review how to choose an allocation and manage copied strategies."], ["Referral network", "Understand your referral tiers and earnings summary."]].map(([title, copy]) => <article className="dash-panel" key={title}><span className="dash-help-icon"><CircleHelp size={18} /></span><h2>{title}</h2><p>{copy}</p></article>)}</div><div className="dash-disclosure"><CircleHelp size={17} /><span>Support contact details will be added when the support channel is confirmed.</span></div></>;
+}
+
+function NotificationsView() {
+  const items = [
+    { icon: Wallet, title: "Deposit credited", detail: "Your USDT deposit is confirmed and available in your wallet.", time: "Today · Sample update", type: "success" },
+    { icon: Zap, title: "Copy trading is active", detail: "BTC Trend Strategy is currently copying in your account.", time: "Yesterday · Sample update", type: "neutral" },
+    { icon: Users, title: "Referral earnings updated", detail: "Your referral earnings are tracked separately from your main wallet.", time: "Oct 27 · Sample update", type: "neutral" },
+  ];
+  return <><PageHeading title="Notifications" subtitle="Important wallet and account information." /><section className="dash-notifications-list" aria-label="Recent notifications">{items.map(({ icon: Icon, title, detail, time, type }) => <article className="dash-panel dash-notification-item" key={title}><span className={`dash-notification-icon ${type}`}><Icon size={18} /></span><div><strong>{title}</strong><p>{detail}</p><small>{time}</small></div><i aria-label="Unread" /></article>)}</section><p className="dash-notification-preview-note">These notification examples are sample data. Account alerts will appear here once connected.</p></>;
 }
 
 export function Dashboard({ initialView = "overview" }: { initialView?: string }) {
@@ -109,7 +155,7 @@ export function Dashboard({ initialView = "overview" }: { initialView?: string }
   const [ready, setReady] = useState(false);
   const [email, setEmail] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
-  const active = navItems.some((item) => item.id === initialView) || ["settings", "help"].includes(initialView) ? initialView : "overview";
+  const active = navItems.some((item) => item.id === initialView) || ["settings", "help", "deposit", "withdraw", "notifications"].includes(initialView) ? initialView : "overview";
   useEffect(() => {
     if (sessionStorage.getItem("echovest-demo-session") !== "1") {
       router.replace("/sign-in");
@@ -124,7 +170,7 @@ export function Dashboard({ initialView = "overview" }: { initialView?: string }
     router.replace("/sign-in");
   }
   if (!ready) return <main className="dash-loading"><span className="brand-icon-crop"><img src="/echovest-icon.png" alt="" /></span><p>Opening your preview…</p></main>;
-  const activeContent = active === "wallet" ? <WalletView /> : active === "trading" ? <TradingView /> : active === "referrals" ? <ReferralsView /> : active === "levels" ? <LevelsView /> : active === "transactions" ? <TransactionsView /> : active === "settings" ? <SettingsView email={email} /> : active === "help" ? <HelpView /> : <Overview />;
+  const activeContent = active === "wallet" ? <WalletView /> : active === "deposit" ? <DepositView /> : active === "withdraw" ? <WithdrawalView /> : active === "notifications" ? <NotificationsView /> : active === "trading" ? <TradingView /> : active === "referrals" ? <ReferralsView /> : active === "levels" ? <LevelsView /> : active === "transactions" ? <TransactionsView /> : active === "settings" ? <SettingsView email={email} /> : active === "help" ? <HelpView /> : <Overview email={email} />;
   const initials = email ? email.slice(0, 1).toUpperCase() : "K";
   return <div className="dash-app">
     <aside className="dash-sidebar"><Brand /><NavLinks active={active} /><div className="dash-sidebar-bottom"><div className="dash-help-card"><span><ShieldCheck size={17} /></span><b>Your account, protected</b><small>Security features are coming soon.</small></div><button type="button" className="dash-signout" onClick={signOut}><LogOut size={18} />Sign out</button></div></aside>
@@ -132,7 +178,7 @@ export function Dashboard({ initialView = "overview" }: { initialView?: string }
     <aside className={`dash-mobile-sidebar ${mobileOpen ? "open" : ""}`} aria-hidden={!mobileOpen}><div className="dash-mobile-sidebar-head"><Brand /><button type="button" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={20} /></button></div><NavLinks active={active} onNavigate={() => setMobileOpen(false)} /><button type="button" className="dash-signout" onClick={signOut}><LogOut size={18} />Sign out</button></aside>
     <div className="dash-main"><header className="dash-topbar"><button type="button" className="dash-mobile-menu" aria-label="Open navigation" onClick={() => setMobileOpen(true)}><Menu size={21} /></button><div className="dash-crumb">Workspace <span>/</span> {formatView(active)}</div><div className="dash-topbar-actions"><span className="dash-topbar-demo">Demo preview</span><button type="button" className="dash-icon-button" aria-label="Notifications"><Bell size={18} /><i /></button><span className="dash-user-separator" /><a className="dash-user-button" href="/dashboard?view=settings"><span className="dash-user-avatar">{initials}</span><span className="dash-user-name">{email.split("@")[0] || "Demo user"}</span><ChevronDown size={15} /></a></div></header>
       <main className="dash-page"><div className="dash-hello"><div><p>Good to see you</p><h2>Welcome back<span>.</span></h2></div><p className="dash-preview-caption">All figures shown are sample data</p></div>{activeContent}</main>
-      <nav className="dash-bottom-nav" aria-label="Quick navigation">{navItems.slice(0, 4).map(({ id, label, icon: Icon }) => <a href={id === "overview" ? "/dashboard" : `/dashboard?view=${id}`} key={id} className={active === id ? "active" : ""} aria-current={active === id ? "page" : undefined}><Icon size={19} /><span>{id === "trading" ? "Signals" : label}</span></a>)}</nav>
+      <nav className="dash-bottom-nav" aria-label="Quick navigation">{[{ id: "overview", label: "Home", icon: Home }, { id: "trading", label: "Trade", icon: Zap }, { id: "wallet", label: "Vault", icon: ShieldCheck }, { id: "transactions", label: "History", icon: ReceiptText }, { id: "settings", label: "Profile", icon: User }].map(({ id, label, icon: Icon }) => <a href={id === "overview" ? "/dashboard" : `/dashboard?view=${id}`} key={id} className={active === id ? "active" : ""} aria-current={active === id ? "page" : undefined}><Icon size={20} /><span>{label}</span></a>)}</nav>
     </div>
   </div>;
 }
