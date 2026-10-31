@@ -1,8 +1,9 @@
 "use client";
 
-import { ArrowLeft, Bell, Check, Clipboard, Info, LoaderCircle, Wallet, X } from "lucide-react";
+import { ArrowLeft, Check, Clipboard, Info, LoaderCircle, Wallet, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { financeRequest, financeStatusLabel, financeStatusTone, FinanceSettings, FinanceSummary } from "../lib/finance-api";
+import { NotificationBell } from "./NotificationCenter";
 
 const money = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 8 });
 
@@ -49,7 +50,7 @@ export function DepositView() {
 
   return <section className="dash-deposit-page">
     <a className="dash-deposit-back" href="/dashboard?view=wallet"><ArrowLeft size={17} /> Back to wallet</a>
-    <div className="dash-page-heading"><div><p className="dash-kicker">WALLET</p><h1>Deposit</h1><p className="dash-subtitle">Send USDT and submit its transaction hash for review.</p></div><a className="dash-page-mobile-notification" href="/dashboard?view=notifications" aria-label="Open notifications"><Bell size={21} /><i /></a></div>
+    <div className="dash-page-heading"><div><p className="dash-kicker">WALLET</p><h1>Deposit</h1><p className="dash-subtitle">Send USDT and submit its transaction hash for review.</p></div><NotificationBell className="dash-page-mobile-notification" size={21} /></div>
     <div className="dash-deposit-layout"><div className="dash-deposit-main">
       <aside className="dash-deposit-notice"><Info size={20} /><div><strong>Before you send</strong><p>Send only USDT on the exact network below. The deposit is added to your trading balance after the network transfer is checked and approved.</p>{settings?.depositInstructions && <small>{settings.depositInstructions}</small>}</div></aside>
       <form className="dash-panel dash-deposit-panel" onSubmit={submit}>

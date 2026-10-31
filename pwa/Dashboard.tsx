@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  ArrowDownLeft, ArrowRight, ArrowUpRight, Award, Bell, ChevronDown,
+  ArrowDownLeft, ArrowRight, ArrowUpRight, Award, ChevronDown,
   CircleHelp, Crown, Gem, Home, LogOut, Medal, Menu, ReceiptText, Settings, ShieldCheck,
   Sparkles, Users, Wallet, X, Zap, User, Plus,
 } from "lucide-react";
@@ -14,6 +14,7 @@ import { authRequest, AuthUser } from "../lib/auth-api";
 import { AppPreloader } from "../components/AppPreloader";
 import loadingStyles from "../components/AppPreloader.module.css";
 import { financeRequest, financeStatusLabel, financeStatusTone, FinanceSummary, FinanceTransaction } from "../lib/finance-api";
+import { NotificationBell, NotificationProvider, NotificationsPage } from "./NotificationCenter";
 
 const navItems = [
   { id: "overview", label: "Overview", icon: Home },
@@ -48,7 +49,7 @@ function NavLinks({ active, onNavigate }: { active: string; onNavigate?: () => v
 }
 
 function PageHeading({ title, subtitle }: { title: string; subtitle: string }) {
-  return <div className="dash-page-heading"><div><p className="dash-kicker">YOUR ACCOUNT</p><h1>{title}</h1><p className="dash-subtitle">{subtitle}</p></div><a className="dash-page-mobile-notification" href="/dashboard?view=notifications" aria-label="Open notifications"><Bell size={21} /><i /></a></div>;
+  return <div className="dash-page-heading"><div><p className="dash-kicker">YOUR ACCOUNT</p><h1>{title}</h1><p className="dash-subtitle">{subtitle}</p></div><NotificationBell className="dash-page-mobile-notification" size={21} /></div>;
 }
 
 function ActivityList({ transactions = [] }: { transactions?: FinanceTransaction[] }) {
@@ -87,7 +88,7 @@ function Overview({ email, name, finance }: { email: string; name: string; finan
 function MobileHome({ email, name, finance }: { email: string; name: string; finance: FinanceSummary }) {
   const firstName = name.split(/\s+/)[0] || email.split("@")[0]?.split(/[._-]/)[0] || "there";
   return <section className="dash-mobile-home" aria-label="Home overview">
-    <header className="dash-mobile-greeting"><div><p>Hello, <strong>{firstName}</strong> <span aria-hidden="true">👋</span></p><small>Welcome back!</small></div><div className="dash-mobile-greeting-actions"><a href="/dashboard?view=levels" className="dash-mobile-level"><Award size={14} /> Blue</a><a href="/dashboard?view=notifications" className="dash-mobile-notification" aria-label="Open notifications"><Bell size={22} /><i /></a></div></header>
+    <header className="dash-mobile-greeting"><div><p>Hello, <strong>{firstName}</strong> <span aria-hidden="true">👋</span></p><small>Welcome back!</small></div><div className="dash-mobile-greeting-actions"><a href="/dashboard?view=levels" className="dash-mobile-level"><Award size={14} /> Blue</a><NotificationBell className="dash-mobile-notification" size={22} /></div></header>
     <article className="dash-mobile-balance">
       <div className="dash-mobile-balance-head"><span>Main wallet</span><Wallet size={19} /></div>
       <strong><BalanceAmount amount={finance.balances.availableTrading} /></strong>
@@ -143,10 +144,6 @@ function HelpView() {
   return <><PageHeading title="Help & support" subtitle="Quick answers for the main areas of your EchoVest account." /><div className="dash-help-grid">{[["Account access", "Sign-in and account recovery options will appear here."], ["Wallet and transactions", "Learn how deposits, withdrawals, and status updates work."], ["Copy trading", "Review how to choose an allocation and manage copied strategies."], ["Referral network", "Understand your referral tiers and earnings summary."]].map(([title, copy]) => <article className="dash-panel" key={title}><span className="dash-help-icon"><CircleHelp size={18} /></span><h2>{title}</h2><p>{copy}</p></article>)}</div><div className="dash-disclosure"><CircleHelp size={17} /><span>Support contact details will be added when the support channel is confirmed.</span></div></>;
 }
 
-function NotificationsView() {
-  return <><PageHeading title="Notifications" subtitle="Important wallet and account information." /><article className="dash-panel dash-full-panel"><h2>No new notifications</h2><p className="dash-deposit-helper">Deposit and withdrawal status updates will appear here when notification delivery is enabled.</p></article></>;
-}
-
 export function Dashboard({ initialView = "overview" }: { initialView?: string }) {
   const router = useRouter();
   const [ready, setReady] = useState(false);
@@ -197,16 +194,16 @@ export function Dashboard({ initialView = "overview" }: { initialView?: string }
     try { await authRequest("signout", {}); } finally { router.replace("/sign-in"); }
   }
   if (!ready) return <AppPreloader label="Loading your account…" />;
-  const activeContent = active === "wallet" ? <WalletView finance={finance} /> : active === "deposit" ? <DepositView /> : active === "withdraw" ? <WithdrawalView /> : active === "notifications" ? <NotificationsView /> : active === "trading" ? <TradingView /> : active === "referrals" ? <ReferralsView balance={finance.balances.referral} /> : active === "levels" ? <LevelsView /> : active === "transactions" ? <TransactionsView finance={finance} /> : active === "settings" ? <SettingsView email={email} name={userName} onSignOut={signOut} /> : active === "help" ? <HelpView /> : <Overview email={email} name={userName} finance={finance} />;
+  const activeContent = active === "wallet" ? <WalletView finance={finance} /> : active === "deposit" ? <DepositView /> : active === "withdraw" ? <WithdrawalView /> : active === "notifications" ? <NotificationsPage /> : active === "trading" ? <TradingView /> : active === "referrals" ? <ReferralsView balance={finance.balances.referral} /> : active === "levels" ? <LevelsView /> : active === "transactions" ? <TransactionsView finance={finance} /> : active === "settings" ? <SettingsView email={email} name={userName} onSignOut={signOut} /> : active === "help" ? <HelpView /> : <Overview email={email} name={userName} finance={finance} />;
   const initials = userName ? userName.slice(0, 1).toUpperCase() : email ? email.slice(0, 1).toUpperCase() : "U";
-  return <div className="dash-app" onClick={navigateWithinDashboard}>
+  return <NotificationProvider><div className="dash-app" onClick={navigateWithinDashboard}>
     {signingOut && <AppPreloader label="Signing out…" />}
     <aside className="dash-sidebar"><Brand /><NavLinks active={active} /><div className="dash-sidebar-bottom"><div className="dash-help-card"><span><ShieldCheck size={17} /></span><b>Your account, protected</b><small>Security features are coming soon.</small></div><button type="button" className="dash-signout" onClick={signOut}><LogOut size={18} />Sign out</button></div></aside>
     {mobileOpen && <div className="dash-mobile-backdrop" onClick={() => setMobileOpen(false)} />}
     <aside className={`dash-mobile-sidebar ${mobileOpen ? "open" : ""}`} aria-hidden={!mobileOpen}><div className="dash-mobile-sidebar-head"><Brand /><button type="button" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={20} /></button></div><NavLinks active={active} onNavigate={() => setMobileOpen(false)} /></aside>
-    <div className="dash-main"><header className="dash-topbar"><button type="button" className="dash-mobile-menu" aria-label="Open navigation" onClick={() => setMobileOpen(true)}><Menu size={21} /></button><div className="dash-crumb">Workspace <span>/</span> {formatView(active)}</div><div className="dash-topbar-actions"><button type="button" className="dash-icon-button" aria-label="Notifications"><Bell size={18} /><i /></button><span className="dash-user-separator" /><a className="dash-user-button" href="/dashboard?view=settings"><span className="dash-user-avatar">{initials}</span><span className="dash-user-name">{userName || email}</span><ChevronDown size={15} /></a></div></header>
+    <div className="dash-main"><header className="dash-topbar"><button type="button" className="dash-mobile-menu" aria-label="Open navigation" onClick={() => setMobileOpen(true)}><Menu size={21} /></button><div className="dash-crumb">Workspace <span>/</span> {formatView(active)}</div><div className="dash-topbar-actions"><NotificationBell className="dash-icon-button" label="Notifications" size={18} /><span className="dash-user-separator" /><a className="dash-user-button" href="/dashboard?view=settings"><span className="dash-user-avatar">{initials}</span><span className="dash-user-name">{userName || email}</span><ChevronDown size={15} /></a></div></header>
       <main className="dash-page"><div className="dash-hello"><div><p>Good to see you</p><h2>Welcome back<span>.</span></h2></div></div><div key={active} className={loadingStyles.sectionEnter}>{activeContent}</div></main>
       <nav className="dash-bottom-nav" aria-label="Quick navigation">{[{ id: "overview", label: "Home", icon: Home }, { id: "trading", label: "Trade", icon: Zap }, { id: "wallet", label: "Vault", icon: ShieldCheck }, { id: "transactions", label: "History", icon: ReceiptText }, { id: "settings", label: "Profile", icon: User }].map(({ id, label, icon: Icon }) => <a href={id === "overview" ? "/dashboard" : `/dashboard?view=${id}`} key={id} className={active === id ? "active" : ""} aria-current={active === id ? "page" : undefined}><Icon size={20} /><span>{label}</span></a>)}</nav>
     </div>
-  </div>;
+  </div></NotificationProvider>;
 }

@@ -1,8 +1,9 @@
 "use client";
 
-import { ArrowLeft, Bell, Check, Clipboard, Info, LoaderCircle, Wallet, X } from "lucide-react";
+import { ArrowLeft, Check, Clipboard, Info, LoaderCircle, Wallet, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { financeRequest, financeStatusLabel, financeStatusTone, FinanceSettings, FinanceSummary } from "../lib/finance-api";
+import { NotificationBell } from "./NotificationCenter";
 
 const money = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 8 });
 
@@ -46,7 +47,7 @@ export function WithdrawalView() {
 
   return <section className="dash-withdraw-page">
     <a className="dash-deposit-back" href="/dashboard?view=wallet"><ArrowLeft size={17} /> Back to wallet</a>
-    <div className="dash-page-heading"><div><p className="dash-kicker">WALLET</p><h1>Withdraw</h1><p className="dash-subtitle">Request a payout from the balance you choose.</p></div><a className="dash-page-mobile-notification" href="/dashboard?view=notifications" aria-label="Open notifications"><Bell size={21} /><i /></a></div>
+    <div className="dash-page-heading"><div><p className="dash-kicker">WALLET</p><h1>Withdraw</h1><p className="dash-subtitle">Request a payout from the balance you choose.</p></div><NotificationBell className="dash-page-mobile-notification" size={21} /></div>
     <div className="dash-withdraw-grid"><div className="dash-withdraw-main">
       <aside className="dash-deposit-notice"><Info size={20} /><div><strong>Withdrawal review</strong><p>Requests are reviewed by the EchoVest team. Your selected funds are reserved until the request is approved or rejected.</p><small>Network: {settings?.depositNetwork || "Not configured"} · Minimum: {money.format(settings?.minimumWithdrawal ?? 0)} USDT</small></div></aside>
       <form className="dash-panel dash-withdraw-panel" onSubmit={submit}>

@@ -3,11 +3,12 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowDownLeft, ArrowRight, ArrowUpRight, BarChart3, Check, ChevronDown, ClipboardList,
-  Download, LayoutDashboard, LockKeyhole, LogOut, Search, ShieldCheck, Signal,
+  Bell, Download, LayoutDashboard, LockKeyhole, LogOut, Megaphone, Search, ShieldCheck, Signal,
   UserRound, Users, Wallet, X, type LucideIcon,
 } from "lucide-react";
 import { adminRequest } from "../lib/admin-api";
 import { financeRequest } from "../lib/finance-api";
+import { notificationRequest } from "../lib/notification-api";
 
 type AdminActor = { id: string; fullName: string; email: string; isSuperAdmin: boolean; permissions: string[] };
 type ManagedUser = { id: string; fullName: string; email: string; role: string; isSuperAdmin: boolean; isEmailVerified: boolean; isDisabled: boolean; withdrawalsDisabled: boolean; createdAt?: string };
@@ -20,6 +21,7 @@ const permissionGroups = [
   { id: "dashboard", label: "Dashboard", description: "View platform overview and summary", permissions: [{ code: "dashboard.view", label: "View overview" }] },
   { id: "users", label: "User accounts", description: "Search and manage registered users", permissions: [{ code: "users.view", label: "View users" }, { code: "users.manage", label: "Edit, disable, reset passwords, and delete users" }] },
   { id: "wallets", label: "Wallets and finance", description: "Manage wallet settings and transaction operations", permissions: [{ code: "wallets.view", label: "View wallets and finance settings" }, { code: "wallets.manage", label: "Edit deposit wallet details and transaction limits" }, { code: "deposits.manage", label: "Review and approve deposits" }, { code: "withdrawals.manage", label: "Review withdrawals and manage withdrawal access" }] },
+  { id: "notifications", label: "Notifications", description: "Send important messages to registered users", permissions: [{ code: "notifications.manage", label: "Broadcast notifications to users" }] },
   { id: "trading", label: "Copy trading", description: "Manage copy-trading signals and strategies", permissions: [{ code: "signals.manage", label: "Manage signals" }] },
   { id: "referrals", label: "Referrals and levels", description: "View referral networks and membership levels", permissions: [{ code: "referrals.view", label: "View referrals and levels" }] },
   { id: "oversight", label: "Reports and audit", description: "View reports and administrative audit records", permissions: [{ code: "reports.view", label: "View reports" }, { code: "audit.view", label: "View audit log" }] },
@@ -31,6 +33,7 @@ const sections: { id: string; label: string; icon: LucideIcon; permission: strin
   { id: "deposits", label: "Deposits", icon: ArrowDownLeft, permission: "deposits.manage" },
   { id: "withdrawals", label: "Withdrawals", icon: ArrowUpRight, permission: "withdrawals.manage" },
   { id: "wallets", label: "Wallets", icon: Wallet, permission: "wallets.view" },
+  { id: "notifications", label: "Notifications", icon: Bell, permission: "notifications.manage" },
   { id: "signals", label: "Copy signals", icon: Signal, permission: "signals.manage" },
   { id: "referrals", label: "Referrals & levels", icon: UserRound, permission: "referrals.view" },
   { id: "reports", label: "Reports", icon: BarChart3, permission: "reports.view" },
@@ -40,6 +43,7 @@ const sections: { id: string; label: string; icon: LucideIcon; permission: strin
 const sectionCopy: Record<string, string> = {
   overview: "Platform management and account activity.", users: "Review registered accounts and manage account access.", deposits: "Deposit operations and payment status.",
   withdrawals: "Withdrawal operations and user withdrawal access.", wallets: "Wallet settings and account wallet status.", signals: "Published copy-trading signals and strategies.",
+  notifications: "Send an important message to registered user accounts.",
   referrals: "Referral networks and membership levels.", reports: "Platform reports and activity summaries.", audit: "Review administrative actions and system events.", roles: "Create admin accounts and assign access to platform sections.",
 };
 const sectionPlaceholder: Record<string, string> = {
@@ -179,6 +183,14 @@ export function AdminDashboard() {
     const path = item.type === "deposit" ? "deposits" : "withdrawals";
     await action(() => financeRequest(`admin/${path}/${item.id}`, "PATCH", { decision, rejectionReason }), decision === "approved" ? "Request approved and balance updated." : "Request rejected.");
   }
+
+  async function broadcastNotification(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const result = await action(() => notificationRequest<{ sent: number }>("admin/broadcast", "POST", { title: data.get("title"), message: data.get("message") }), "Notification broadcast delivered to the user inboxes.");
+    if (result) form.reset();
+  }
   const setPermission = (code: string) => setNewPermissions((currentPermissions) => currentPermissions.includes(code) ? currentPermissions.filter((item) => item !== code) : [...currentPermissions, code]);
 
   return <div className="admin-app">
@@ -200,7 +212,8 @@ export function AdminDashboard() {
         </>}
         {current.id === "deposits" && <FinanceTable title="Deposit requests" items={deposits} onReview={reviewFinance} busy={busy} />}
         {current.id === "withdrawals" && <FinanceTable title="Withdrawal requests" items={withdrawals} onReview={reviewFinance} busy={busy} />}
-        {!(["overview", "users", "roles", "audit", "wallets", "deposits", "withdrawals"].includes(current.id)) && <article className="admin-panel admin-module-empty"><span>{current.id === "deposits" ? <ArrowDownLeft /> : current.id === "withdrawals" ? <ArrowUpRight /> : current.id === "wallets" ? <Wallet /> : current.id === "signals" ? <Signal /> : current.id === "referrals" ? <UserRound /> : <BarChart3 />}</span><h2>{current.label}</h2><p>{sectionPlaceholder[current.id] ?? "This module is not connected yet."}</p></article>}
+        {current.id === "notifications" && <form className="admin-panel admin-broadcast-form" onSubmit={broadcastNotification}><div className="admin-panel-head"><div><h2>Broadcast an important update</h2><p>Send an in-app message to every registered user. Users with push enabled will also receive a device alert.</p></div><span className="admin-broadcast-icon"><Megaphone size={18} /></span></div><label>Notification title<input name="title" minLength={3} maxLength={120} placeholder="e.g. Scheduled maintenance" required /></label><label>Message<textarea name="message" minLength={3} maxLength={2000} rows={6} placeholder="Write the update users should see in their notification inbox." required /></label><div className="admin-broadcast-foot"><small>Up to 2,000 characters. This message will appear in each user’s inbox.</small><button className="admin-primary-button" disabled={busy}><Megaphone size={15} /> Send notification</button></div></form>}
+        {!(["overview", "users", "roles", "audit", "wallets", "deposits", "withdrawals", "notifications"].includes(current.id)) && <article className="admin-panel admin-module-empty"><span>{current.id === "deposits" ? <ArrowDownLeft /> : current.id === "withdrawals" ? <ArrowUpRight /> : current.id === "wallets" ? <Wallet /> : current.id === "signals" ? <Signal /> : current.id === "referrals" ? <UserRound /> : <BarChart3 />}</span><h2>{current.label}</h2><p>{sectionPlaceholder[current.id] ?? "This module is not connected yet."}</p></article>}
         {current.id === "overview" && <><article className="admin-panel admin-overview-note"><h2>Manage by access group</h2><p>Use Admin access to create administrator accounts and enable only the platform areas each person needs. Access checks are enforced by the backend on every admin request.</p>{permissionGroups.map((group) => <div key={group.id}><strong>{group.label}</strong><span>{group.permissions.map((permission) => permission.label).join(" · ")}</span></div>)}</article></>}
       </section>
     </main>

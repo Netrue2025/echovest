@@ -1,14 +1,16 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { User } from '../users/user.schema.js';
 import { AdminAudit } from '../admin/admin-audit.schema.js';
 import { FinanceSettings, FinanceTransaction } from './finance.schema.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 
 type Actor = { id: string; email: string };
 @Injectable()
 export class FinanceService {
-  constructor(@InjectModel(User.name) private readonly users: Model<User>, @InjectModel(FinanceTransaction.name) private readonly transactions: Model<FinanceTransaction>, @InjectModel(FinanceSettings.name) private readonly settings: Model<FinanceSettings>, @InjectModel(AdminAudit.name) private readonly audit: Model<AdminAudit>) {}
+  private readonly logger = new Logger(FinanceService.name);
+  constructor(@InjectModel(User.name) private readonly users: Model<User>, @InjectModel(FinanceTransaction.name) private readonly transactions: Model<FinanceTransaction>, @InjectModel(FinanceSettings.name) private readonly settings: Model<FinanceSettings>, @InjectModel(AdminAudit.name) private readonly audit: Model<AdminAudit>, private readonly notifications: NotificationsService) {}
   private async config() { return await this.settings.findOneAndUpdate({ key: 'platform' }, { $setOnInsert: { key: 'platform' } }, { upsert: true, new: true, setDefaultsOnInsert: true }).lean().exec(); }
   async publicSettings() { const s = await this.config(); return { depositWalletAddress: s?.depositWalletAddress ?? '', depositNetwork: s?.depositNetwork ?? '', depositInstructions: s?.depositInstructions ?? '', minimumDeposit: s?.minimumDeposit ?? 0, minimumWithdrawal: s?.minimumWithdrawal ?? 0 }; }
   async updateSettings(input: { depositWalletAddress: string; depositNetwork: string; depositInstructions: string; minimumDeposit: number; minimumWithdrawal: number }, actor: Actor) {
@@ -81,6 +83,18 @@ export class FinanceService {
         await this.audit.create([{ actorId: actor.id, actorEmail: actor.email, action: `finance.${transaction.type}.${decision}`, targetType: 'transaction', targetId: id, targetLabel: String(transaction.userId), detail: decision === 'rejected' ? reason!.trim() : `${transaction.amount} USDT approved.` }], { session });
       });
     } finally { await session.endSession(); }
-    return this.transactions.findById(id).lean().exec();
+    const reviewed = await this.transactions.findById(id).lean().exec();
+    if (reviewed) {
+      const decisionText = decision === 'approved' ? 'approved' : 'rejected';
+      const title = `${expectedType === 'deposit' ? 'Deposit' : 'Withdrawal'} ${decisionText}`;
+      const message = decision === 'approved'
+        ? expectedType === 'deposit'
+          ? `Your ${transaction.amount} USDT deposit was approved and credited to your trading balance.`
+          : `Your ${transaction.amount} USDT withdrawal was approved and debited from your ${transaction.balanceType} balance.`
+        : `${expectedType === 'deposit' ? 'Your deposit' : 'Your withdrawal'} was rejected. ${reason?.trim() || 'Please review the request details.'}`;
+      try { await this.notifications.notifyUser(String(transaction.userId), title, message, expectedType); }
+      catch (error) { this.logger.error(`Transaction ${expectedType} notification could not be saved: ${error instanceof Error ? error.message : 'unknown error'}`); }
+    }
+    return reviewed;
   }
 }

@@ -69,3 +69,9 @@ npm run test:e2e
 ```
 
 Automated tests should mock Resend and Mongo models; no email or production database is needed for unit tests.
+
+## Web Push notifications
+
+To enable browser push delivery, generate one VAPID key pair from the `backend` directory with `npx web-push generate-vapid-keys`. Set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` on the backend deployment (for example, `mailto:admin@your-domain.com` for the subject), then redeploy the backend. Keep the private key secret and reuse the same pair across deployments so existing browser subscriptions remain valid. Without these settings, the in-app inbox and admin broadcasts still work, but push subscription and device delivery stay disabled.
+
+Users opt in from Dashboard → Notifications. Admin broadcasts use the Notifications section and require the `notifications.manage` permission. Approved or rejected deposit and withdrawal requests create an in-app notification and send a device push to subscribed users.
