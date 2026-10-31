@@ -9,6 +9,7 @@ import { SessionsModule } from './sessions/sessions.module.js';
 import { UsersModule } from './users/users.module.js';
 import { RateLimitGuard } from './common/rate-limit.guard.js';
 import { AdminModule } from './admin/admin.module.js';
+import { FinanceModule } from './finance/finance.module.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -33,6 +34,7 @@ function validateEnvironment(config: Record<string, unknown>) {
     EmailModule,
     AuthModule,
     AdminModule,
+    FinanceModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: RateLimitGuard }],
 })

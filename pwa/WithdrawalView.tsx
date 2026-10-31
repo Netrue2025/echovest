@@ -1,62 +1,58 @@
 "use client";
 
-import { ArrowLeft, ArrowRight, Bell, Check, Clipboard, Info, LockKeyhole, ShieldCheck, Wallet, X } from "lucide-react";
-import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
+import { ArrowLeft, Bell, Check, Clipboard, Info, LoaderCircle, Wallet } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { financeRequest, FinanceSettings, FinanceSummary } from "../lib/finance-api";
 
-const balances = { trading: 12160.5, referral: 320 };
-const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+const money = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 8 });
 
 export function WithdrawalView() {
   const [wallet, setWallet] = useState<"trading" | "referral">("trading");
   const [address, setAddress] = useState("");
   const [amount, setAmount] = useState("");
-  const [modalOpen, setModalOpen] = useState(false);
-  const [previewNotice, setPreviewNotice] = useState(false);
+  const [summary, setSummary] = useState<FinanceSummary | null>(null);
+  const [settings, setSettings] = useState<FinanceSettings | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [pasteMessage, setPasteMessage] = useState("");
-  const available = balances[wallet];
+  useEffect(() => { Promise.all([financeRequest<FinanceSummary>("me"), financeRequest<FinanceSettings>("settings")]).then(([account, config]) => { setSummary(account); setSettings(config); }).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load withdrawal details.")); }, []);
+  const available = wallet === "trading" ? summary?.balances.availableTrading ?? 0 : summary?.balances.availableReferral ?? 0;
   const numericAmount = Number(amount);
-  const validAmount = Number.isFinite(numericAmount) && numericAmount > 0 && numericAmount <= available;
-
-  useEffect(() => {
-    if (!modalOpen) return;
-    function onKeyDown(event: KeyboardEvent) { if (event.key === "Escape") setModalOpen(false); }
-    window.addEventListener("keydown", onKeyDown);
-    return () => { window.removeEventListener("keydown", onKeyDown); };
-  }, [modalOpen]);
-
+  const validAmount = Number.isFinite(numericAmount) && numericAmount >= (settings?.minimumWithdrawal ?? 0) && numericAmount > 0 && numericAmount <= available;
+  const history = useMemo(() => summary?.transactions.filter((item) => item.type === "withdrawal") ?? [], [summary]);
   async function pasteAddress() {
     setPasteMessage("");
+    try { const value = await navigator.clipboard.readText(); if (value) setAddress(value.trim()); else setPasteMessage("Your clipboard is empty."); }
+    catch { setPasteMessage("Paste the address into the field above."); }
+  }
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (!validAmount || !address.trim() || !settings?.depositNetwork || busy) return;
+    setBusy(true); setError(""); setNotice("");
     try {
-      const clipboardText = await navigator.clipboard.readText();
-      if (clipboardText) setAddress(clipboardText.trim());
-      else setPasteMessage("Your clipboard is empty.");
-    } catch { setPasteMessage("Paste the address into the field above."); }
+      await financeRequest("withdrawals", "POST", { amount: numericAmount, balanceType: wallet, destinationAddress: address.trim(), network: settings.depositNetwork });
+      setNotice("Withdrawal request submitted. The amount is reserved while admin reviews it."); setAddress(""); setAmount("");
+      setSummary(await financeRequest<FinanceSummary>("me"));
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not submit your withdrawal."); }
+    finally { setBusy(false); }
   }
 
-  return <>
-  <section className="dash-withdraw-page">
+  return <section className="dash-withdraw-page">
     <a className="dash-deposit-back" href="/dashboard?view=wallet"><ArrowLeft size={17} /> Back to wallet</a>
-    <div className="dash-page-heading"><div><p className="dash-kicker">WALLET</p><h1>Withdraw</h1><p className="dash-subtitle">Send funds to a wallet you control.</p></div><span className="dash-preview-tag"><i /> Preview only</span><a className="dash-page-mobile-notification" href="/dashboard?view=notifications" aria-label="Open notifications"><Bell size={21} /><i /></a></div>
-    <div className="dash-withdraw-grid">
-      <div className="dash-withdraw-main">
-        <aside className="dash-deposit-notice"><Info size={20} /><div><strong>Withdrawal processing</strong><p>Withdrawal requests are expected to be processed within 1–24 hours. You can follow each request in your transaction history.</p><small>Preview only: no funds can be sent from this page.</small></div></aside>
-        <article className="dash-panel dash-withdraw-panel">
-          <div className="dash-withdraw-balance"><span><Wallet size={19} /> Available to withdraw <i>Sample</i></span><strong>{money.format(available)}</strong><label htmlFor="withdraw-wallet">From balance</label><select id="withdraw-wallet" value={wallet} onChange={(event) => { setWallet(event.target.value as "trading" | "referral"); setPreviewNotice(false); }}><option value="trading">Trading wallet</option><option value="referral">Referral earnings</option></select></div>
-          <h2 className="dash-deposit-step-title"><span>1</span>Recipient wallet address</h2>
-          <label className="dash-deposit-label" htmlFor="withdraw-address">USDT wallet address</label>
-          <div className="dash-withdraw-address-row"><input id="withdraw-address" type="text" autoComplete="off" spellCheck={false} placeholder="Paste the destination wallet address" value={address} onChange={(event) => { setAddress(event.target.value); setPreviewNotice(false); }} /><button type="button" onClick={pasteAddress}><Clipboard size={16} /> Paste</button></div>
-          <p className="dash-deposit-helper">Confirm the destination address and supported network before requesting a withdrawal. Network options will be shown when configured.</p>
-          {pasteMessage && <p className="dash-withdraw-inline-note" role="status">{pasteMessage}</p>}
-          {address.trim() && <div className="dash-withdraw-progress-step"><h2 className="dash-deposit-step-title"><span>2</span>Withdrawal amount</h2><label className="dash-deposit-label" htmlFor="withdraw-amount">Amount (USDT)</label><div className="dash-deposit-input-wrap"><input id="withdraw-amount" type="number" min="0" step="any" inputMode="decimal" placeholder="Enter amount" value={amount} onChange={(event) => { setAmount(event.target.value); setPreviewNotice(false); }} /><span>USDT</span><button type="button" onClick={() => { setAmount(String(available)); setPreviewNotice(false); }}>Max</button></div><p className="dash-deposit-helper">Available: {money.format(available)} · Network fees will be displayed before confirmation.</p>{amount && !validAmount && <p className="dash-withdraw-inline-error" role="alert">Enter an amount greater than zero and no more than your available balance.</p>}</div>}
-          {validAmount && address.trim() && <div className="dash-withdraw-progress-step"><h2 className="dash-deposit-step-title"><span>3</span>Review your request</h2><div className="dash-withdraw-review"><div><span>From</span><strong>{wallet === "trading" ? "Trading wallet" : "Referral earnings"}</strong></div><div><span>Amount</span><strong>{money.format(numericAmount)} USDT</strong></div><div><span>Processing time</span><strong>Within 1–24 hours</strong></div><div><span>Network</span><strong>Confirmed when available</strong></div></div><button className="dash-withdraw-review-button" type="button" onClick={() => setModalOpen(true)}>Review withdrawal <ArrowRight size={16} /></button></div>}
-          {previewNotice && <p className="dash-withdraw-preview-notice" role="status"><ShieldCheck size={16} /> Preview only — no withdrawal request was sent.</p>}
-          <p className="dash-deposit-disabled-note"><LockKeyhole size={14} /> Final withdrawal verification will be connected with secure account services.</p>
-        </article>
-      </div>
-      <aside className="dash-panel dash-deposit-status"><span className="dash-overline">WITHDRAWAL STATUS</span><h2>Request steps</h2><div className="dash-deposit-timeline"><div className="current"><i><Check size={13} /></i><span><strong>Enter destination</strong><small>Use a wallet address that you control.</small></span></div><div><i>2</i><span><strong>Review details</strong><small>Confirm balance, amount, and destination.</small></span></div><div><i>3</i><span><strong>Processing</strong><small>Requests are expected within 1–24 hours.</small></span></div><div><i>4</i><span><strong>Completed or declined</strong><small>Check your history for status updates.</small></span></div></div></aside>
-    </div>
-  </section>
-    {modalOpen && typeof document !== "undefined" && createPortal(<div className="dash-modal-layer" onMouseDown={(event) => { if (event.target === event.currentTarget) setModalOpen(false); }}><section className="dash-modal-card" role="dialog" aria-modal="true" aria-labelledby="withdraw-modal-title"><header><span className="dash-modal-icon"><ShieldCheck size={20} /></span><button type="button" onClick={() => setModalOpen(false)} aria-label="Close review"><X size={20} /></button></header><h2 id="withdraw-modal-title">Confirm withdrawal details</h2><p>Review the request before continuing.</p><div className="dash-modal-summary"><div><span>Amount</span><strong>{money.format(numericAmount)} USDT</strong></div><div><span>From</span><strong>{wallet === "trading" ? "Trading wallet" : "Referral earnings"}</strong></div><div><span>Destination</span><strong>{address.length > 18 ? `${address.slice(0, 9)}…${address.slice(-6)}` : address}</strong></div><div><span>Expected processing</span><strong>1–24 hours</strong></div></div><aside className="dash-modal-preview"><Info size={16} /><span>This is a frontend preview. No withdrawal will be submitted and no funds will move.</span></aside><footer><button type="button" className="dash-modal-secondary" onClick={() => setModalOpen(false)}>Edit details</button><button type="button" className="dash-modal-primary" onClick={() => { setModalOpen(false); setPreviewNotice(true); }}>Got it</button></footer></section></div>, document.body)}
-  </>;
+    <div className="dash-page-heading"><div><p className="dash-kicker">WALLET</p><h1>Withdraw</h1><p className="dash-subtitle">Request a payout from the balance you choose.</p></div><a className="dash-page-mobile-notification" href="/dashboard?view=notifications" aria-label="Open notifications"><Bell size={21} /><i /></a></div>
+    <div className="dash-withdraw-grid"><div className="dash-withdraw-main">
+      <aside className="dash-deposit-notice"><Info size={20} /><div><strong>Withdrawal review</strong><p>Requests are reviewed by the EchoVest team. Your selected funds are reserved until the request is approved or rejected.</p><small>Network: {settings?.depositNetwork || "Not configured"} · Minimum: {money.format(settings?.minimumWithdrawal ?? 0)} USDT</small></div></aside>
+      <form className="dash-panel dash-withdraw-panel" onSubmit={submit}>
+        <div className="dash-withdraw-balance"><span><Wallet size={19} /> Available to withdraw</span><strong>{money.format(available)} USDT</strong><label htmlFor="withdraw-wallet">Withdraw from</label><select id="withdraw-wallet" value={wallet} onChange={(event) => { setWallet(event.target.value as "trading" | "referral"); setAmount(""); }}><option value="trading">Investment balance</option><option value="referral">Referral balance</option></select></div>
+        <h2 className="dash-deposit-step-title"><span>1</span>Destination wallet</h2><label className="dash-deposit-label" htmlFor="withdraw-address">USDT wallet address</label>
+        <div className="dash-withdraw-address-row"><input id="withdraw-address" type="text" autoComplete="off" spellCheck={false} placeholder="Paste the destination wallet address" value={address} onChange={(event) => setAddress(event.target.value)} required /><button type="button" onClick={pasteAddress}><Clipboard size={16} /> Paste</button></div>
+        {pasteMessage && <p className="dash-withdraw-inline-note" role="status">{pasteMessage}</p>}
+        <div className="dash-withdraw-progress-step"><h2 className="dash-deposit-step-title"><span>2</span>Withdrawal amount</h2><label className="dash-deposit-label" htmlFor="withdraw-amount">Amount</label><div className="dash-deposit-input-wrap"><input id="withdraw-amount" type="number" min={settings?.minimumWithdrawal || "0.01"} max={available} step="any" inputMode="decimal" placeholder="Enter amount" value={amount} onChange={(event) => setAmount(event.target.value)} required /><span>USDT</span><button type="button" onClick={() => setAmount(String(available))}>Max</button></div><p className="dash-deposit-helper">Available: {money.format(available)} USDT · Minimum: {money.format(settings?.minimumWithdrawal ?? 0)} USDT</p>{amount && !validAmount && <p className="dash-withdraw-inline-error" role="alert">Amount must meet the minimum and not exceed your available balance.</p>}</div>
+        <div className="dash-withdraw-progress-step"><h2 className="dash-deposit-step-title"><span>3</span>Review request</h2><div className="dash-withdraw-review"><div><span>From</span><strong>{wallet === "trading" ? "Investment balance" : "Referral balance"}</strong></div><div><span>Amount</span><strong>{money.format(numericAmount || 0)} USDT</strong></div><div><span>Network</span><strong>{settings?.depositNetwork || "Not configured"}</strong></div><div><span>Destination</span><strong>{address || "Enter wallet address"}</strong></div></div></div>
+        {error && <p className="dash-deposit-error" role="alert">{error}</p>}{notice && <p className="dash-deposit-next-hint" role="status">{notice}</p>}
+        <button className="dash-withdraw-review-button" type="submit" disabled={!validAmount || !address.trim() || !settings?.depositNetwork || busy}>{busy ? <><LoaderCircle size={17} /> Submitting…</> : "Submit withdrawal request"}</button>
+      </form>
+      <article className="dash-panel dash-withdraw-panel"><div className="dash-panel-heading"><div><h2>Your withdrawal requests</h2><p>Approved withdrawals are deducted from the selected balance.</p></div></div>{history.length ? history.map((item) => <div className="dash-activity-row" key={item.id}><span className="dash-activity-icon out"><ArrowLeft size={17} /></span><span className="dash-activity-main"><b>{money.format(item.amount)} USDT withdrawal</b><small>{item.balanceType} balance · {item.network}</small></span><span className="dash-activity-amount"><b>{item.status.replaceAll("_", " ")}</b><small>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : ""}</small></span></div>) : <p className="dash-deposit-helper">No withdrawal requests yet.</p>}</article>
+    </div><aside className="dash-panel dash-deposit-status"><span className="dash-overline">WITHDRAWAL STATUS</span><h2>Request steps</h2><div className="dash-deposit-timeline"><div className="current"><i><Check size={13} /></i><span><strong>Submit details</strong><small>Verify the wallet and chosen balance.</small></span></div><div><i>2</i><span><strong>Admin review</strong><small>Funds remain reserved during review.</small></span></div><div><i>3</i><span><strong>Approved or rejected</strong><small>Approval debits funds; rejection releases them.</small></span></div></div></aside></div>
+  </section>;
 }

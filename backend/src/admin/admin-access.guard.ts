@@ -19,6 +19,7 @@ export class AdminAccessGuard implements CanActivate {
     if (!required.length || !required.every((permission) => {
       if (!ADMIN_PERMISSION_CODES.includes(permission as typeof ADMIN_PERMISSION_CODES[number])) return false;
       if (permission === 'users.view') return Boolean(user.adminPermissions?.includes('users.view') || user.adminPermissions?.includes('users.manage'));
+      if (permission === 'wallets.view') return Boolean(user.adminPermissions?.includes('wallets.view') || user.adminPermissions?.includes('wallets.manage'));
       return Boolean(user.adminPermissions?.includes(permission));
     })) {
       throw new ForbiddenException('Your admin account does not have permission for this section.');

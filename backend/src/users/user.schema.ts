@@ -16,6 +16,10 @@ export class User {
   @Prop({ type: [String], default: [] }) adminPermissions!: string[];
   @Prop({ default: false, index: true }) isDisabled!: boolean;
   @Prop({ default: false, index: true }) withdrawalsDisabled!: boolean;
+  @Prop({ default: 0, min: 0 }) tradingBalance!: number;
+  @Prop({ default: 0, min: 0 }) referralBalance!: number;
+  @Prop({ default: 0, min: 0 }) pendingTradingWithdrawals!: number;
+  @Prop({ default: 0, min: 0 }) pendingReferralWithdrawals!: number;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

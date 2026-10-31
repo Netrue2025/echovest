@@ -7,16 +7,19 @@ import {
   UserRound, Users, Wallet, X, type LucideIcon,
 } from "lucide-react";
 import { adminRequest } from "../lib/admin-api";
+import { financeRequest } from "../lib/finance-api";
 
 type AdminActor = { id: string; fullName: string; email: string; isSuperAdmin: boolean; permissions: string[] };
 type ManagedUser = { id: string; fullName: string; email: string; role: string; isSuperAdmin: boolean; isEmailVerified: boolean; isDisabled: boolean; withdrawalsDisabled: boolean; createdAt?: string };
 type ManagedAdmin = { id: string; fullName: string; email: string; permissions: string[]; disabled: boolean; createdAt?: string };
 type AuditEvent = { id: string; actorId: string; actorEmail: string; action: string; targetType: string; targetId: string; targetLabel: string; detail: string; createdAt?: string };
+type FinanceSettings = { depositWalletAddress: string; depositNetwork: string; depositInstructions: string; minimumDeposit: number; minimumWithdrawal: number };
+type FinanceTransaction = { id: string; type: "deposit" | "withdrawal"; amount: number; balanceType: string; status: string; txid: string; network: string; destinationAddress: string; rejectionReason: string; createdAt?: string; user?: { fullName: string; email: string } | null };
 
 const permissionGroups = [
   { id: "dashboard", label: "Dashboard", description: "View platform overview and summary", permissions: [{ code: "dashboard.view", label: "View overview" }] },
   { id: "users", label: "User accounts", description: "Search and manage registered users", permissions: [{ code: "users.view", label: "View users" }, { code: "users.manage", label: "Edit, disable, reset passwords, and delete users" }] },
-  { id: "wallets", label: "Wallets and finance", description: "Manage wallet settings and transaction operations", permissions: [{ code: "wallets.view", label: "View wallets" }, { code: "deposits.manage", label: "Manage deposits" }, { code: "withdrawals.manage", label: "Manage withdrawals and withdrawal access" }] },
+  { id: "wallets", label: "Wallets and finance", description: "Manage wallet settings and transaction operations", permissions: [{ code: "wallets.view", label: "View wallets and finance settings" }, { code: "wallets.manage", label: "Edit deposit wallet details and transaction limits" }, { code: "deposits.manage", label: "Review and approve deposits" }, { code: "withdrawals.manage", label: "Review withdrawals and manage withdrawal access" }] },
   { id: "trading", label: "Copy trading", description: "Manage copy-trading signals and strategies", permissions: [{ code: "signals.manage", label: "Manage signals" }] },
   { id: "referrals", label: "Referrals and levels", description: "View referral networks and membership levels", permissions: [{ code: "referrals.view", label: "View referrals and levels" }] },
   { id: "oversight", label: "Reports and audit", description: "View reports and administrative audit records", permissions: [{ code: "reports.view", label: "View reports" }, { code: "audit.view", label: "View audit log" }] },
@@ -69,6 +72,10 @@ function LoginForm({ onLogin }: { onLogin: (actor: AdminActor) => void }) {
   </form></main>;
 }
 
+function FinanceTable({ title, items, busy, onReview }: { title: string; items: FinanceTransaction[]; busy: boolean; onReview: (item: FinanceTransaction, decision: "approved" | "rejected") => void }) {
+  return <article className="admin-panel admin-records"><div className="admin-panel-head"><div><h2>{title}</h2><p>Approve only after confirming the transfer or payout details.</p></div><span>{items.filter((item) => item.status === "network_confirmation" || item.status === "pending_review").length} awaiting review</span></div><div className="admin-table-wrap"><table><thead><tr><th>User</th><th>Amount</th><th>Network / balance</th><th>Address / TXID</th><th>Status</th><th>Submitted</th><th>Action</th></tr></thead><tbody>{items.map((item) => <tr key={item.id}><td>{item.user?.fullName ?? "Deleted user"}<small>{item.user?.email ?? ""}</small></td><td>{Number(item.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })} USDT</td><td>{item.type === "withdrawal" ? item.balanceType : item.network}</td><td>{item.type === "deposit" ? item.txid || "No TXID provided" : item.destinationAddress}<small>{item.type === "withdrawal" ? item.network : "Transaction hash"}</small></td><td><i className={item.status === "approved" ? "status-active" : item.status === "rejected" ? "status-review" : "status-pending"}>{item.status.replaceAll("_", " ")}</i>{item.rejectionReason && <small>{item.rejectionReason}</small>}</td><td>{item.createdAt ? new Date(item.createdAt).toLocaleString() : "—"}</td><td>{(item.status === "network_confirmation" || item.status === "pending_review") ? <><button className="admin-row-manage" type="button" disabled={busy} onClick={() => onReview(item, "approved")}>Approve</button><button className="admin-inline-action" type="button" disabled={busy} onClick={() => onReview(item, "rejected")}>Reject</button></> : "Reviewed"}</td></tr>)}</tbody></table>{!items.length && <div className="admin-empty">No requests have been submitted yet.</div>}</div></article>;
+}
+
 export function AdminDashboard() {
   const [actor, setActor] = useState<AdminActor | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -84,6 +91,9 @@ export function AdminDashboard() {
   const [selectedAdmin, setSelectedAdmin] = useState<ManagedAdmin | null>(null);
   const [newAdminOpen, setNewAdminOpen] = useState(false);
   const [newPermissions, setNewPermissions] = useState<string[]>([]);
+  const [financeSettings, setFinanceSettings] = useState<FinanceSettings>({ depositWalletAddress: "", depositNetwork: "", depositInstructions: "", minimumDeposit: 0, minimumWithdrawal: 0 });
+  const [deposits, setDeposits] = useState<FinanceTransaction[]>([]);
+  const [withdrawals, setWithdrawals] = useState<FinanceTransaction[]>([]);
 
   const can = useCallback((permission: string) => Boolean(actor?.isSuperAdmin || actor?.permissions.includes(permission) || (permission === "users.view" && actor?.permissions.includes("users.manage"))), [actor]);
   const loadUsers = useCallback(async () => {
@@ -98,6 +108,9 @@ export function AdminDashboard() {
     if (!actor?.isSuperAdmin && !actor?.permissions.includes("audit.view")) return;
     setAuditEvents(await adminRequest<AuditEvent[]>("audit"));
   }, [actor]);
+  const loadFinanceSettings = useCallback(async () => { if (can("wallets.view") || can("wallets.manage")) setFinanceSettings(await financeRequest<FinanceSettings>("admin/settings")); }, [can]);
+  const loadDeposits = useCallback(async () => { if (can("deposits.manage")) setDeposits(await financeRequest<FinanceTransaction[]>("admin/deposits")); }, [can]);
+  const loadWithdrawals = useCallback(async () => { if (can("withdrawals.manage")) setWithdrawals(await financeRequest<FinanceTransaction[]>("admin/withdrawals")); }, [can]);
 
   useEffect(() => {
     let active = true;
@@ -107,11 +120,11 @@ export function AdminDashboard() {
   useEffect(() => {
     if (!actor) return;
     let active = true;
-    Promise.all([loadUsers(), loadAdmins(), loadAudit()]).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Could not load admin data."); });
+    Promise.all([loadUsers(), loadAdmins(), loadAudit(), loadFinanceSettings(), loadDeposits(), loadWithdrawals()]).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Could not load admin data."); });
     return () => { active = false; };
-  }, [actor, loadUsers, loadAdmins, loadAudit]);
+  }, [actor, loadUsers, loadAdmins, loadAudit, loadFinanceSettings, loadDeposits, loadWithdrawals]);
 
-  const visibleSections = useMemo(() => sections.filter((item) => item.id !== "roles" ? can(item.permission) : Boolean(actor?.isSuperAdmin)), [can, actor]);
+  const visibleSections = useMemo(() => sections.filter((item) => item.id === "wallets" ? can("wallets.view") || can("wallets.manage") : item.id !== "roles" ? can(item.permission) : Boolean(actor?.isSuperAdmin)), [can, actor]);
   const current = visibleSections.find((item) => item.id === section) ?? visibleSections[0];
   useEffect(() => { if (current && current.id !== section) setSection(current.id); }, [current, section]);
   const matches = (name: string, email: string, status: string) => `${name} ${email} ${status}`.toLowerCase().includes(query.toLowerCase());
@@ -119,7 +132,7 @@ export function AdminDashboard() {
   const filteredAdmins = admins.filter((admin) => matches(admin.fullName, admin.email, admin.disabled ? "disabled" : "active"));
 
   async function reload() {
-    try { await Promise.all([loadUsers(), loadAdmins(), loadAudit()]); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not refresh data."); }
+    try { await Promise.all([loadUsers(), loadAdmins(), loadAudit(), loadFinanceSettings(), loadDeposits(), loadWithdrawals()]); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not refresh data."); }
   }
   async function action(task: () => Promise<unknown>, success: string): Promise<boolean> {
     setBusy(true); setError(""); setNotice("");
@@ -154,6 +167,18 @@ export function AdminDashboard() {
     if (!selectedAdmin) return;
     if (await action(() => adminRequest(`admins/${selectedAdmin.id}/permissions`, "PATCH", { permissions: newPermissions }), "Admin access updated.")) setSelectedAdmin(null);
   }
+  async function saveFinanceSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const payload = { depositWalletAddress: String(data.get("depositWalletAddress") ?? ""), depositNetwork: String(data.get("depositNetwork") ?? ""), depositInstructions: String(data.get("depositInstructions") ?? ""), minimumDeposit: Number(data.get("minimumDeposit") ?? 0), minimumWithdrawal: Number(data.get("minimumWithdrawal") ?? 0) };
+    if (await action(() => financeRequest("admin/settings", "PATCH", payload), "Wallet details and transaction limits saved.")) setFinanceSettings(payload);
+  }
+  async function reviewFinance(item: FinanceTransaction, decision: "approved" | "rejected") {
+    const rejectionReason = decision === "rejected" ? window.prompt("Enter the reason for rejection:")?.trim() : undefined;
+    if (decision === "rejected" && !rejectionReason) return;
+    const path = item.type === "deposit" ? "deposits" : "withdrawals";
+    await action(() => financeRequest(`admin/${path}/${item.id}`, "PATCH", { decision, rejectionReason }), decision === "approved" ? "Request approved and balance updated." : "Request rejected.");
+  }
   const setPermission = (code: string) => setNewPermissions((currentPermissions) => currentPermissions.includes(code) ? currentPermissions.filter((item) => item !== code) : [...currentPermissions, code]);
 
   return <div className="admin-app">
@@ -170,7 +195,12 @@ export function AdminDashboard() {
         <article className="admin-panel admin-records"><div className="admin-panel-head"><div><h2>Current administrators</h2><p>Super admin access is controlled through environment credentials.</p></div><div className="admin-record-actions"><label><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search administrators" /></label><button type="button" onClick={reload} disabled={busy}>Refresh</button></div></div><div className="admin-table-wrap"><table><thead><tr><th>Administrator</th><th>Email</th><th>Access groups</th><th>Status</th><th>Created</th><th /></tr></thead><tbody>{filteredAdmins.map((admin) => <tr key={admin.id}><td><span className="admin-table-avatar">{admin.fullName.slice(0, 1).toUpperCase()}</span><strong>{admin.fullName}</strong></td><td>{admin.email}</td><td>{admin.permissions.length} permissions</td><td><i className={admin.disabled ? "status-review" : "status-active"}>{admin.disabled ? "Disabled" : "Active"}</i></td><td>{admin.createdAt ? new Date(admin.createdAt).toLocaleDateString() : "—"}</td><td><button className="admin-row-manage" type="button" onClick={() => { setSelectedAdmin(admin); setNewPermissions(admin.permissions); }}>Manage access</button><button className="admin-inline-action" type="button" disabled={busy} onClick={async () => { if (await action(() => adminRequest(`admins/${admin.id}/status`, "PATCH", { disabled: !admin.disabled }), admin.disabled ? "Admin account enabled." : "Admin account disabled and signed out.")) { if (selectedAdmin?.id === admin.id) setSelectedAdmin({ ...admin, disabled: !admin.disabled }); } }}>{admin.disabled ? "Enable" : "Disable"}</button></td></tr>)}</tbody></table>{!filteredAdmins.length && <div className="admin-empty">No admin accounts found.</div>}</div></article>
         </>}
         {current.id === "audit" && <article className="admin-panel admin-records"><div className="admin-panel-head"><div><h2>Admin action history</h2><p>Recent user-account and admin-access changes · latest 250 events</p></div><button type="button" onClick={reload} disabled={busy}><Download size={14} /> Refresh</button></div><div className="admin-table-wrap"><table><thead><tr><th>When</th><th>Administrator</th><th>Action</th><th>Target</th><th>Details</th></tr></thead><tbody>{auditEvents.map((event) => <tr key={event.id}><td>{event.createdAt ? new Date(event.createdAt).toLocaleString() : "—"}</td><td>{event.actorEmail}</td><td>{event.action.replaceAll(".", " ")}</td><td>{event.targetLabel}<small>{event.targetType}</small></td><td>{event.detail}</td></tr>)}</tbody></table>{!auditEvents.length && <div className="admin-empty">No admin actions have been recorded yet.</div>}</div></article>}
-        {!(["overview", "users", "roles", "audit"].includes(current.id)) && <article className="admin-panel admin-module-empty"><span>{current.id === "deposits" ? <ArrowDownLeft /> : current.id === "withdrawals" ? <ArrowUpRight /> : current.id === "wallets" ? <Wallet /> : current.id === "signals" ? <Signal /> : current.id === "referrals" ? <UserRound /> : <BarChart3 />}</span><h2>{current.label}</h2><p>{sectionPlaceholder[current.id] ?? "This module is not connected yet."}</p></article>}
+        {current.id === "wallets" && <>
+          <form key={JSON.stringify(financeSettings)} className="admin-panel admin-finance-settings" onSubmit={saveFinanceSettings}><div className="admin-panel-head"><div><h2>Deposit wallet and limits</h2><p>Updated limits apply immediately to new user requests.</p></div></div><div className="admin-finance-fields"><label>Deposit wallet address<input name="depositWalletAddress" defaultValue={financeSettings.depositWalletAddress} required disabled={!can("wallets.manage")} /></label><label>Network<input name="depositNetwork" defaultValue={financeSettings.depositNetwork} placeholder="e.g. TRC20" required disabled={!can("wallets.manage")} /></label><label>Minimum deposit (USDT)<input name="minimumDeposit" type="number" min="0" step="any" defaultValue={financeSettings.minimumDeposit} required disabled={!can("wallets.manage")} /></label><label>Minimum withdrawal (USDT)<input name="minimumWithdrawal" type="number" min="0" step="any" defaultValue={financeSettings.minimumWithdrawal} required disabled={!can("wallets.manage")} /></label><label className="wide">Important deposit information<textarea name="depositInstructions" rows={4} defaultValue={financeSettings.depositInstructions} placeholder="Payment instructions and network warnings" disabled={!can("wallets.manage")} /></label></div>{can("wallets.manage") && <button className="admin-primary-button" disabled={busy}>Save finance settings</button>}</form>
+        </>}
+        {current.id === "deposits" && <FinanceTable title="Deposit requests" items={deposits} onReview={reviewFinance} busy={busy} />}
+        {current.id === "withdrawals" && <FinanceTable title="Withdrawal requests" items={withdrawals} onReview={reviewFinance} busy={busy} />}
+        {!(["overview", "users", "roles", "audit", "wallets", "deposits", "withdrawals"].includes(current.id)) && <article className="admin-panel admin-module-empty"><span>{current.id === "deposits" ? <ArrowDownLeft /> : current.id === "withdrawals" ? <ArrowUpRight /> : current.id === "wallets" ? <Wallet /> : current.id === "signals" ? <Signal /> : current.id === "referrals" ? <UserRound /> : <BarChart3 />}</span><h2>{current.label}</h2><p>{sectionPlaceholder[current.id] ?? "This module is not connected yet."}</p></article>}
         {current.id === "overview" && <><article className="admin-panel admin-overview-note"><h2>Manage by access group</h2><p>Use Admin access to create administrator accounts and enable only the platform areas each person needs. Access checks are enforced by the backend on every admin request.</p>{permissionGroups.map((group) => <div key={group.id}><strong>{group.label}</strong><span>{group.permissions.map((permission) => permission.label).join(" · ")}</span></div>)}</article></>}
       </section>
     </main>
