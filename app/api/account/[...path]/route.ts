@@ -11,7 +11,9 @@ async function proxy(request: NextRequest, context: RouteContext) {
 
   const endpoint = context.params.path.map(encodeURIComponent).join('/');
   const headers = new Headers();
-  for (const name of ['accept', 'content-type', 'cookie']) {
+  // Preserve the browser origin for the backend CSRF guard. The request now
+  // reaches the backend server-to-server, so fetch would otherwise omit it.
+  for (const name of ['accept', 'content-type', 'cookie', 'origin']) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
