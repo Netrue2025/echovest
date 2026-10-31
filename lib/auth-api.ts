@@ -1,8 +1,13 @@
 export type AuthUser = { id: string; fullName: string; email: string; role: string };
 
 function apiBase() {
+  if (process.env.NODE_ENV === 'production') {
+    if (!process.env.NEXT_PUBLIC_API_URL) throw new Error('The account service URL is not configured. Set NEXT_PUBLIC_API_URL and rebuild the frontend.');
+    // Keep the session cookie first-party. Safari blocks cookies set by a
+    // cross-site API when the PWA is installed or using strict tracking rules.
+    return '/api/account';
+  }
   if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '');
-  if (process.env.NODE_ENV === 'production') throw new Error('The account service URL is not configured. Set NEXT_PUBLIC_API_URL and rebuild the frontend.');
   if (typeof window !== 'undefined') return `http://${window.location.hostname}:4000`;
   return 'http://localhost:4000';
 }
