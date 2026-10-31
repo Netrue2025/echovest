@@ -31,13 +31,16 @@ export class AuthService {
     ).exec();
     await this.emailService.sendVerificationCode(email, fullName, code);
   }
-  async signup(input: { fullName: string; email: string; password: string; passwordConfirmation: string }) {
+  async signup(input: { fullName: string; email: string; password: string; passwordConfirmation: string; referralCode?: string }) {
     if (input.password !== input.passwordConfirmation) throw new BadRequestException('Passwords do not match.');
     const email = input.email.trim().toLowerCase();
     if (await this.users.findByEmail(email)) throw new ConflictException('An account with this email already exists.');
+    const referralCode = input.referralCode?.trim().toUpperCase();
+    const referrer = referralCode ? await this.users.findByReferralCode(referralCode) : null;
+    if (referralCode && (!referrer || referrer.role !== 'user' || referrer.isDisabled)) throw new BadRequestException('That referral code is invalid or inactive.');
     const passwordHash = await argon2.hash(input.password, { type: argon2.argon2id });
     let user;
-    try { user = await this.users.create({ fullName: input.fullName.trim(), email, passwordHash }); }
+    try { user = await this.users.create({ fullName: input.fullName.trim(), email, passwordHash }, referrer?._id); }
     catch (error) {
       if (typeof error === 'object' && error !== null && 'code' in error && error.code === 11000) throw new ConflictException('An account with this email already exists.');
       throw error;

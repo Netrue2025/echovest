@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { randomBytes } from 'node:crypto';
 import { User, UserDocument } from './user.schema.js';
 
 @Injectable()
@@ -11,7 +12,26 @@ export class UsersService {
     return includePassword ? query.select('+passwordHash').exec() : query.exec();
   }
   findByEmailById(id: string) { return this.users.findById(id).exec(); }
-  create(data: Pick<User, 'fullName' | 'email' | 'passwordHash'>) { return this.users.create({ ...data, email: data.email.trim().toLowerCase() }); }
+  create(data: Pick<User, 'fullName' | 'email' | 'passwordHash'>, referredBy?: User['_id']) {
+    const referralCode = `EV${randomBytes(6).toString('hex').toUpperCase()}`;
+    return this.users.create({ ...data, referralCode, ...(referredBy ? { referredBy } : {}), email: data.email.trim().toLowerCase() });
+  }
+  findByReferralCode(code: string) { return this.users.findOne({ referralCode: code.trim().toUpperCase() }).exec(); }
+  async ensureReferralCode(userId: string) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const existing = await this.users.findById(userId).select('referralCode').lean().exec();
+      if (!existing) return null;
+      if (existing.referralCode) return existing.referralCode;
+      const referralCode = `EV${randomBytes(6).toString('hex').toUpperCase()}`;
+      try {
+        const updated = await this.users.findOneAndUpdate({ _id: userId, $or: [{ referralCode: { $exists: false } }, { referralCode: null }] }, { $set: { referralCode } }, { new: true }).select('referralCode').lean().exec();
+        if (updated?.referralCode) return updated.referralCode;
+      } catch (error) {
+        if (!(typeof error === 'object' && error !== null && 'code' in error && error.code === 11000)) throw error;
+      }
+    }
+    throw new Error('Could not assign a referral code.');
+  }
   async markVerified(userId: string) { return this.users.findByIdAndUpdate(userId, { isEmailVerified: true }, { new: true }).exec(); }
   async updatePassword(userId: string, passwordHash: string) { return this.users.findByIdAndUpdate(userId, { passwordHash }, { new: true }).exec(); }
   listAll() { return this.users.find({}).select('-passwordHash').sort({ createdAt: -1 }).lean().exec(); }

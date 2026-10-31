@@ -11,6 +11,7 @@ import { RateLimitGuard } from './common/rate-limit.guard.js';
 import { AdminModule } from './admin/admin.module.js';
 import { FinanceModule } from './finance/finance.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
+import { ReferralsModule } from './referrals/referrals.module.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -37,6 +38,7 @@ function validateEnvironment(config: Record<string, unknown>) {
     AdminModule,
     FinanceModule,
     NotificationsModule,
+    ReferralsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: RateLimitGuard }],
 })

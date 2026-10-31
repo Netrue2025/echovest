@@ -5,12 +5,13 @@ import { User } from '../users/user.schema.js';
 import { AdminAudit } from '../admin/admin-audit.schema.js';
 import { FinanceSettings, FinanceTransaction } from './finance.schema.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
+import { ReferralsService } from '../referrals/referrals.service.js';
 
 type Actor = { id: string; email: string };
 @Injectable()
 export class FinanceService {
   private readonly logger = new Logger(FinanceService.name);
-  constructor(@InjectModel(User.name) private readonly users: Model<User>, @InjectModel(FinanceTransaction.name) private readonly transactions: Model<FinanceTransaction>, @InjectModel(FinanceSettings.name) private readonly settings: Model<FinanceSettings>, @InjectModel(AdminAudit.name) private readonly audit: Model<AdminAudit>, private readonly notifications: NotificationsService) {}
+  constructor(@InjectModel(User.name) private readonly users: Model<User>, @InjectModel(FinanceTransaction.name) private readonly transactions: Model<FinanceTransaction>, @InjectModel(FinanceSettings.name) private readonly settings: Model<FinanceSettings>, @InjectModel(AdminAudit.name) private readonly audit: Model<AdminAudit>, private readonly notifications: NotificationsService, private readonly referrals: ReferralsService) {}
   private async config() { return await this.settings.findOneAndUpdate({ key: 'platform' }, { $setOnInsert: { key: 'platform' } }, { upsert: true, new: true, setDefaultsOnInsert: true }).lean().exec(); }
   async publicSettings() { const s = await this.config(); return { depositWalletAddress: s?.depositWalletAddress ?? '', depositNetwork: s?.depositNetwork ?? '', depositInstructions: s?.depositInstructions ?? '', minimumDeposit: s?.minimumDeposit ?? 0, minimumWithdrawal: s?.minimumWithdrawal ?? 0 }; }
   async updateSettings(input: { depositWalletAddress: string; depositNetwork: string; depositInstructions: string; minimumDeposit: number; minimumWithdrawal: number }, actor: Actor) {
@@ -65,6 +66,7 @@ export class FinanceService {
     if (transaction.status !== validCurrent) throw new ConflictException('This request has already been reviewed.');
     if (decision === 'rejected' && !reason?.trim()) throw new BadRequestException('Add a reason when rejecting a request.');
     const session = await this.transactions.db.startSession();
+    const referralPayouts: Array<{ userId: string; amount: number; tier: number }> = [];
     try {
       await session.withTransaction(async () => {
         const changed = await this.transactions.findOneAndUpdate({ _id: id, status: validCurrent }, { $set: { status: decision, rejectionReason: decision === 'rejected' ? reason!.trim() : '', reviewedBy: actor.email, reviewedAt: new Date() } }, { new: true, session }).exec();
@@ -72,6 +74,7 @@ export class FinanceService {
         if (transaction.type === 'deposit' && decision === 'approved') {
           const credited = await this.users.updateOne({ _id: transaction.userId }, { $inc: { tradingBalance: transaction.amount } }, { session }).exec();
           if (!credited.matchedCount) throw new NotFoundException('The account for this deposit no longer exists.');
+          referralPayouts.push(...await this.referrals.accrueDeposit(String(transaction.userId), String(transaction._id), transaction.amount, session));
         }
         if (transaction.type === 'withdrawal') {
           const balance = transaction.balanceType === 'trading' ? 'tradingBalance' : 'referralBalance';
@@ -94,6 +97,10 @@ export class FinanceService {
         : `${expectedType === 'deposit' ? 'Your deposit' : 'Your withdrawal'} was rejected. ${reason?.trim() || 'Please review the request details.'}`;
       try { await this.notifications.notifyUser(String(transaction.userId), title, message, expectedType); }
       catch (error) { this.logger.error(`Transaction ${expectedType} notification could not be saved: ${error instanceof Error ? error.message : 'unknown error'}`); }
+      for (const payout of referralPayouts) {
+        try { await this.notifications.notifyUser(payout.userId, 'Referral commission credited', `You earned ${payout.amount} USD from a tier ${payout.tier} referral deposit.`, 'deposit'); }
+        catch (error) { this.logger.error(`Referral commission notification could not be saved: ${error instanceof Error ? error.message : 'unknown error'}`); }
+      }
     }
     return reviewed;
   }

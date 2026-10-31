@@ -9,6 +9,7 @@ import {
 import { adminRequest } from "../lib/admin-api";
 import { financeRequest } from "../lib/finance-api";
 import { notificationRequest } from "../lib/notification-api";
+import { referralRequest } from "../lib/referral-api";
 
 type AdminActor = { id: string; fullName: string; email: string; isSuperAdmin: boolean; permissions: string[] };
 type ManagedUser = { id: string; fullName: string; email: string; role: string; isSuperAdmin: boolean; isEmailVerified: boolean; isDisabled: boolean; withdrawalsDisabled: boolean; createdAt?: string };
@@ -16,6 +17,9 @@ type ManagedAdmin = { id: string; fullName: string; email: string; permissions: 
 type AuditEvent = { id: string; actorId: string; actorEmail: string; action: string; targetType: string; targetId: string; targetLabel: string; detail: string; createdAt?: string };
 type FinanceSettings = { depositWalletAddress: string; depositNetwork: string; depositInstructions: string; minimumDeposit: number; minimumWithdrawal: number };
 type FinanceTransaction = { id: string; type: "deposit" | "withdrawal"; amount: number; balanceType: string; status: string; txid: string; network: string; destinationAddress: string; rejectionReason: string; createdAt?: string; user?: { fullName: string; email: string } | null };
+type ReferralRate = { level: string; tier1: number; tier2: number; tier3: number };
+type ReferralAdminUser = { id: string; fullName: string; membershipLevel: string };
+type ReferralNetwork = { counts: { tier1: number; tier2: number; tier3: number }; downliners: { id: string; fullName: string; tier: number; earned: number; joinedAt?: string }[] };
 
 const permissionGroups = [
   { id: "dashboard", label: "Dashboard", description: "View platform overview and summary", permissions: [{ code: "dashboard.view", label: "View overview" }] },
@@ -23,7 +27,7 @@ const permissionGroups = [
   { id: "wallets", label: "Wallets and finance", description: "Manage wallet settings and transaction operations", permissions: [{ code: "wallets.view", label: "View wallets and finance settings" }, { code: "wallets.manage", label: "Edit deposit wallet details and transaction limits" }, { code: "deposits.manage", label: "Review and approve deposits" }, { code: "withdrawals.manage", label: "Review withdrawals and manage withdrawal access" }] },
   { id: "notifications", label: "Notifications", description: "Send important messages to registered users", permissions: [{ code: "notifications.manage", label: "Broadcast notifications to users" }] },
   { id: "trading", label: "Copy trading", description: "Manage copy-trading signals and strategies", permissions: [{ code: "signals.manage", label: "Manage signals" }] },
-  { id: "referrals", label: "Referrals and levels", description: "View referral networks and membership levels", permissions: [{ code: "referrals.view", label: "View referrals and levels" }] },
+  { id: "referrals", label: "Referrals and levels", description: "View referral networks and configure referral commissions", permissions: [{ code: "referrals.view", label: "View referrals and levels" }, { code: "referrals.manage", label: "Configure referral commission rates" }] },
   { id: "oversight", label: "Reports and audit", description: "View reports and administrative audit records", permissions: [{ code: "reports.view", label: "View reports" }, { code: "audit.view", label: "View audit log" }] },
   { id: "administrators", label: "Administrator access", description: "Super-admin only: create administrators and assign section access", permissions: [{ code: "admins.manage", label: "Manage admin accounts (super-admin only)" }] },
 ];
@@ -51,7 +55,7 @@ const sectionPlaceholder: Record<string, string> = {
   withdrawals: "Withdrawal requests will appear here when withdrawal processing is connected.",
   wallets: "Wallet provisioning and address controls will appear here when the wallet service is connected.",
   signals: "Published strategies and copier controls will appear here when signal management is connected.",
-  referrals: "Referral and level records will appear here when referral services are connected.",
+  referrals: "Configure referral commission rates by level and downline tier.",
   reports: "Reports will be available when platform transaction data is connected.",
   audit: "Administrative actions will appear here after the audit log service is connected.",
 };
@@ -98,6 +102,10 @@ export function AdminDashboard() {
   const [financeSettings, setFinanceSettings] = useState<FinanceSettings>({ depositWalletAddress: "", depositNetwork: "", depositInstructions: "", minimumDeposit: 0, minimumWithdrawal: 0 });
   const [deposits, setDeposits] = useState<FinanceTransaction[]>([]);
   const [withdrawals, setWithdrawals] = useState<FinanceTransaction[]>([]);
+  const [referralRates, setReferralRates] = useState<ReferralRate[]>(["Blue", "Elite", "Silver", "Gold", "Platinum"].map((level) => ({ level, tier1: 0, tier2: 0, tier3: 0 })));
+  const [referralUsers, setReferralUsers] = useState<ReferralAdminUser[]>([]);
+  const [referralUserId, setReferralUserId] = useState("");
+  const [referralNetwork, setReferralNetwork] = useState<ReferralNetwork | null>(null);
 
   const can = useCallback((permission: string) => Boolean(actor?.isSuperAdmin || actor?.permissions.includes(permission) || (permission === "users.view" && actor?.permissions.includes("users.manage"))), [actor]);
   const loadUsers = useCallback(async () => {
@@ -115,6 +123,8 @@ export function AdminDashboard() {
   const loadFinanceSettings = useCallback(async () => { if (can("wallets.view") || can("wallets.manage")) setFinanceSettings(await financeRequest<FinanceSettings>("admin/settings")); }, [can]);
   const loadDeposits = useCallback(async () => { if (can("deposits.manage")) setDeposits(await financeRequest<FinanceTransaction[]>("admin/deposits")); }, [can]);
   const loadWithdrawals = useCallback(async () => { if (can("withdrawals.manage")) setWithdrawals(await financeRequest<FinanceTransaction[]>("admin/withdrawals")); }, [can]);
+  const loadReferralRates = useCallback(async () => { if (can("referrals.view")) { const [result, networkUsers] = await Promise.all([referralRequest<{ rates: ReferralRate[] }>("admin/settings"), referralRequest<ReferralAdminUser[]>("admin/users")]); setReferralRates(result.rates); setReferralUsers(networkUsers); setReferralUserId((current) => current || networkUsers[0]?.id || ""); } }, [can]);
+  useEffect(() => { if (!referralUserId || !can("referrals.view")) return; referralRequest<ReferralNetwork>(`admin/network/${encodeURIComponent(referralUserId)}`).then(setReferralNetwork).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load this referral network.")); }, [referralUserId, can]);
 
   useEffect(() => {
     let active = true;
@@ -124,9 +134,9 @@ export function AdminDashboard() {
   useEffect(() => {
     if (!actor) return;
     let active = true;
-    Promise.all([loadUsers(), loadAdmins(), loadAudit(), loadFinanceSettings(), loadDeposits(), loadWithdrawals()]).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Could not load admin data."); });
+    Promise.all([loadUsers(), loadAdmins(), loadAudit(), loadFinanceSettings(), loadDeposits(), loadWithdrawals(), loadReferralRates()]).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Could not load admin data."); });
     return () => { active = false; };
-  }, [actor, loadUsers, loadAdmins, loadAudit, loadFinanceSettings, loadDeposits, loadWithdrawals]);
+  }, [actor, loadUsers, loadAdmins, loadAudit, loadFinanceSettings, loadDeposits, loadWithdrawals, loadReferralRates]);
 
   const visibleSections = useMemo(() => sections.filter((item) => item.id === "wallets" ? can("wallets.view") || can("wallets.manage") : item.id !== "roles" ? can(item.permission) : Boolean(actor?.isSuperAdmin)), [can, actor]);
   const current = visibleSections.find((item) => item.id === section) ?? visibleSections[0];
@@ -136,7 +146,7 @@ export function AdminDashboard() {
   const filteredAdmins = admins.filter((admin) => matches(admin.fullName, admin.email, admin.disabled ? "disabled" : "active"));
 
   async function reload() {
-    try { await Promise.all([loadUsers(), loadAdmins(), loadAudit(), loadFinanceSettings(), loadDeposits(), loadWithdrawals()]); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not refresh data."); }
+    try { await Promise.all([loadUsers(), loadAdmins(), loadAudit(), loadFinanceSettings(), loadDeposits(), loadWithdrawals(), loadReferralRates()]); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not refresh data."); }
   }
   async function action(task: () => Promise<unknown>, success: string): Promise<boolean> {
     setBusy(true); setError(""); setNotice("");
@@ -177,6 +187,19 @@ export function AdminDashboard() {
     const payload = { depositWalletAddress: String(data.get("depositWalletAddress") ?? ""), depositNetwork: String(data.get("depositNetwork") ?? ""), depositInstructions: String(data.get("depositInstructions") ?? ""), minimumDeposit: Number(data.get("minimumDeposit") ?? 0), minimumWithdrawal: Number(data.get("minimumWithdrawal") ?? 0) };
     if (await action(() => financeRequest("admin/settings", "PATCH", payload), "Wallet details and transaction limits saved.")) setFinanceSettings(payload);
   }
+  async function saveReferralSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (await action(() => referralRequest("admin/settings", "PATCH", { rates: referralRates }), "Referral commission rates saved.")) setNotice("Referral commission rates saved. They apply to future approved deposit commissions.");
+  }
+  async function adjustReferralBonus(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!referralUserId) { setError("Select a user account first."); return; }
+    const data = new FormData(event.currentTarget);
+    const direction = String(data.get("direction"));
+    const amount = Number(data.get("amount"));
+    const reason = String(data.get("reason") ?? "");
+    if (await action(() => referralRequest("admin/bonus", "POST", { userId: referralUserId, amount, direction, reason }), `Referral balance ${direction === "credit" ? "credited" : "adjusted"} with an audit record.`)) event.currentTarget.reset();
+  }
   async function reviewFinance(item: FinanceTransaction, decision: "approved" | "rejected") {
     const rejectionReason = decision === "rejected" ? window.prompt("Enter the reason for rejection:")?.trim() : undefined;
     if (decision === "rejected" && !rejectionReason) return;
@@ -213,7 +236,10 @@ export function AdminDashboard() {
         {current.id === "deposits" && <FinanceTable title="Deposit requests" items={deposits} onReview={reviewFinance} busy={busy} />}
         {current.id === "withdrawals" && <FinanceTable title="Withdrawal requests" items={withdrawals} onReview={reviewFinance} busy={busy} />}
         {current.id === "notifications" && <form className="admin-panel admin-broadcast-form" onSubmit={broadcastNotification}><div className="admin-panel-head"><div><h2>Broadcast an important update</h2><p>Send an in-app message to every registered user. Users with push enabled will also receive a device alert.</p></div><span className="admin-broadcast-icon"><Megaphone size={18} /></span></div><label>Notification title<input name="title" minLength={3} maxLength={120} placeholder="e.g. Scheduled maintenance" required /></label><label>Message<textarea name="message" minLength={3} maxLength={2000} rows={6} placeholder="Write the update users should see in their notification inbox." required /></label><div className="admin-broadcast-foot"><small>Up to 2,000 characters. This message will appear in each user’s inbox.</small><button className="admin-primary-button" disabled={busy}><Megaphone size={15} /> Send notification</button></div></form>}
-        {!(["overview", "users", "roles", "audit", "wallets", "deposits", "withdrawals", "notifications"].includes(current.id)) && <article className="admin-panel admin-module-empty"><span>{current.id === "deposits" ? <ArrowDownLeft /> : current.id === "withdrawals" ? <ArrowUpRight /> : current.id === "wallets" ? <Wallet /> : current.id === "signals" ? <Signal /> : current.id === "referrals" ? <UserRound /> : <BarChart3 />}</span><h2>{current.label}</h2><p>{sectionPlaceholder[current.id] ?? "This module is not connected yet."}</p></article>}
+        {current.id === "referrals" && <form className="admin-panel admin-finance-settings" onSubmit={saveReferralSettings}><div className="admin-panel-head"><div><h2>Referral commission rates</h2><p>Set the percentage of an approved deposit paid to each upline tier, based on the recipient’s membership level.</p></div></div><p className="admin-access-hint">All rates start at 0%. The PRD leaves exact values to be confirmed. Tier 2 and Tier 3 rates must not exceed the preceding tier. These rates apply only to future approved deposits.</p><div className="admin-table-wrap"><table><thead><tr><th>Member level</th><th>Tier 1 (%)</th><th>Tier 2 (%)</th><th>Tier 3 (%)</th></tr></thead><tbody>{referralRates.map((row) => <tr key={row.level}><td><strong>{row.level}</strong></td>{(["tier1", "tier2", "tier3"] as const).map((tier) => <td key={tier}><input aria-label={`${row.level} ${tier} commission percent`} type="number" min="0" max="100" step="0.01" value={row[tier]} disabled={!can("referrals.manage")} onChange={(event) => setReferralRates((items) => items.map((item) => item.level === row.level ? { ...item, [tier]: Number(event.target.value) } : item))} /></td>)}</tr>)}</tbody></table></div>{can("referrals.manage") && <button className="admin-primary-button" disabled={busy}>Save referral rates</button>}</form>}
+        {current.id === "referrals" && <article className="admin-panel admin-records"><div className="admin-panel-head"><div><h2>Referral network lookup</h2><p>Review up to three tiers. Downliner wallet balances are never shown.</p></div><label>Account<select value={referralUserId} onChange={(event) => setReferralUserId(event.target.value)}><option value="">Select a user</option>{referralUsers.map((user) => <option key={user.id} value={user.id}>{user.fullName} · {user.membershipLevel}</option>)}</select></label></div><div className="admin-table-wrap"><table><thead><tr><th>Downliner</th><th>Tier</th><th>Commission earned</th><th>Joined</th></tr></thead><tbody>{referralNetwork?.downliners.map((member) => <tr key={member.id}><td>{member.fullName}</td><td>{member.tier}</td><td>{Number(member.earned).toFixed(2)} USD</td><td>{member.joinedAt ? new Date(member.joinedAt).toLocaleDateString() : "—"}</td></tr>)}</tbody></table>{referralNetwork && !referralNetwork.downliners.length && <div className="admin-empty">No downliners are recorded for this account.</div>}</div></article>}
+        {current.id === "referrals" && can("referrals.manage") && <form className="admin-panel admin-broadcast-form" onSubmit={adjustReferralBonus}><div className="admin-panel-head"><div><h2>Manual referral balance adjustment</h2><p>Every adjustment requires a reason and is written to the admin audit trail.</p></div></div><label>Credit or debit<select name="direction"><option value="credit">Credit bonus</option><option value="debit">Debit adjustment</option></select></label><label>Amount (USD)<input name="amount" type="number" min="0.00000001" step="0.00000001" required /></label><label>Reason<textarea name="reason" minLength={3} maxLength={500} rows={3} required /></label><button className="admin-primary-button" disabled={busy || !referralUserId}>Apply adjustment to selected account</button></form>}
+        {!(["overview", "users", "roles", "audit", "wallets", "deposits", "withdrawals", "notifications", "referrals"].includes(current.id)) && <article className="admin-panel admin-module-empty"><span>{current.id === "deposits" ? <ArrowDownLeft /> : current.id === "withdrawals" ? <ArrowUpRight /> : current.id === "wallets" ? <Wallet /> : current.id === "signals" ? <Signal /> : current.id === "referrals" ? <UserRound /> : <BarChart3 />}</span><h2>{current.label}</h2><p>{sectionPlaceholder[current.id] ?? "This module is not connected yet."}</p></article>}
         {current.id === "overview" && <><article className="admin-panel admin-overview-note"><h2>Manage by access group</h2><p>Use Admin access to create administrator accounts and enable only the platform areas each person needs. Access checks are enforced by the backend on every admin request.</p>{permissionGroups.map((group) => <div key={group.id}><strong>{group.label}</strong><span>{group.permissions.map((permission) => permission.label).join(" · ")}</span></div>)}</article></>}
       </section>
     </main>

@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  ArrowDownLeft, ArrowRight, ArrowUpRight, Award, ChevronDown,
+  ArrowDownLeft, ArrowRight, ArrowUpRight, Award, Check, ChevronDown, Copy,
   CircleHelp, Crown, Gem, Home, LogOut, Medal, Menu, ReceiptText, Settings, ShieldCheck,
   Sparkles, Users, Wallet, X, Zap, User, Plus,
 } from "lucide-react";
@@ -15,6 +15,7 @@ import { AppPreloader } from "../components/AppPreloader";
 import loadingStyles from "../components/AppPreloader.module.css";
 import { financeRequest, financeStatusLabel, financeStatusTone, FinanceSummary, FinanceTransaction } from "../lib/finance-api";
 import { NotificationBell, NotificationProvider, NotificationsPage } from "./NotificationCenter";
+import { referralRequest, ReferralOverview } from "../lib/referral-api";
 
 const navItems = [
   { id: "overview", label: "Overview", icon: Home },
@@ -118,7 +119,21 @@ function TradingView() {
 }
 
 function ReferralsView({ balance }: { balance: number }) {
-  return <><PageHeading title="Referrals" subtitle="Your referral rewards and network activity." /><section className="dash-stat-grid dash-referral-stats"><article className="dash-stat-card"><small>Referral balance</small><strong>{money(balance)}</strong><span className="dash-stat-caption">Approved referral credits</span></article></section><article className="dash-panel dash-full-panel"><div className="dash-panel-heading"><div><h2>Your referral link</h2><p>Your unique invite link will appear when referrals are enabled.</p></div></div><p className="dash-deposit-helper">Referral activity will appear here when real referral accounts join.</p></article></>;
+  const [overview, setOverview] = useState<ReferralOverview | null>(null);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  useEffect(() => { referralRequest<ReferralOverview>("me").then(setOverview).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load your referral details.")); }, []);
+  const link = overview && typeof window !== "undefined" ? `${window.location.origin}/sign-up?ref=${encodeURIComponent(overview.referralCode)}` : "";
+  async function copyLink() {
+    if (!link) return;
+    try { await navigator.clipboard.writeText(link); setCopied(true); window.setTimeout(() => setCopied(false), 1800); }
+    catch { setError("Could not copy the invite link. Please copy it from the field."); }
+  }
+  return <><PageHeading title="Referrals" subtitle="Invite friends and follow your three-level network." />
+    <section className="dash-stat-grid dash-referral-stats"><article className="dash-stat-card"><small>Referral balance</small><strong>{money(balance)}</strong><span className="dash-stat-caption">Available for withdrawal</span></article><article className="dash-stat-card"><small>Earned to date</small><strong>{money(overview?.referralBalanceEarned ?? 0)}</strong><span className="dash-stat-caption">Referral commissions credited</span></article><article className="dash-stat-card"><small>Your level</small><strong>{overview?.membershipLevel ?? "Blue"}</strong><span className="dash-stat-caption">Commission settings follow your level</span></article></section>
+    <article className="dash-panel dash-full-panel"><div className="dash-panel-heading"><div><h2>Your invite link</h2><p>Your referral assignment is permanent after signup.</p></div></div>{overview ? <><div className="dash-wallet-actions"><input aria-label="Referral link" readOnly value={link} /><button className="dash-outline-button" type="button" onClick={() => void copyLink()}>{copied ? <Check size={15} /> : <Copy size={15} />}{copied ? "Copied" : "Copy link"}</button></div><p className="dash-deposit-helper">Referral code: <strong>{overview.referralCode}</strong>. Signup-only bonuses are not awarded.</p></> : <p className="dash-deposit-helper">{error || "Loading your invite link…"}</p>}</article>
+    <article className="dash-panel dash-full-panel"><div className="dash-panel-heading"><div><h2>Your downline</h2><p>Names and commissions earned from each downliner; their wallet balances remain private.</p></div><span className="dash-soft-count">{overview ? overview.downliners.length : 0} members</span></div>{error && <p className="dash-notification-error" role="alert">{error}</p>}{overview?.downliners.length ? <div className="dash-activity-list">{overview.downliners.map((member) => <div className="dash-activity-row" key={member.id}><span className="dash-activity-icon in"><Users size={18} /></span><span className="dash-activity-main"><b>{member.fullName}</b><small>Tier {member.tier}{member.joinedAt ? ` · Joined ${new Date(member.joinedAt).toLocaleDateString()}` : ""}</small></span><span className="dash-activity-amount"><b>{money(member.earned)}</b><small>Earned from member</small></span></div>)}</div> : <p className="dash-deposit-helper">{overview ? "Your referral network will appear here when people join with your link." : "Loading your network…"}</p>}</article>
+  </>;
 }
 
 function LevelsView() {

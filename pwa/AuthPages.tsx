@@ -1,7 +1,7 @@
 "use client";
 
 import { Eye, EyeOff } from "lucide-react";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { countries } from "../lib/countries";
 import { authRequest } from "../lib/auth-api";
@@ -37,9 +37,15 @@ export function SignUpPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [country, setCountry] = useState("NG");
+  const [referralCode, setReferralCode] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const selectedCountry = useMemo(() => countries.find((item) => item.code === country) ?? countries[0], [country]);
+
+  useEffect(() => {
+    const inviteCode = new URLSearchParams(window.location.search).get("ref");
+    if (inviteCode) setReferralCode(inviteCode.trim().toUpperCase());
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -56,7 +62,7 @@ export function SignUpPage() {
     setNotice("");
     try {
       const email = String(formData.get("email") ?? "").trim().toLowerCase();
-      await authRequest("signup", { fullName: formData.get("name"), email, password, passwordConfirmation: confirmPassword });
+      await authRequest("signup", { fullName: formData.get("name"), email, password, passwordConfirmation: confirmPassword, referralCode: String(formData.get("referralCode") ?? "").trim() || undefined });
       sessionStorage.setItem("echovest-pending-email", email);
       router.push("/verify-email");
     } catch (error) {
@@ -80,7 +86,7 @@ export function SignUpPage() {
         <PasswordField id="signup-password" label="Password" placeholder="Create a password" value={password} onChange={setPassword} autoComplete="new-password" />
         <PasswordChecks password={password} />
         <PasswordField id="confirm-password" label="Confirm password" placeholder="Confirm your password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" />
-        <div className="auth-field"><label htmlFor="referral-code">Referral code <span className="auth-optional">Optional</span></label><input id="referral-code" name="referralCode" type="text" autoComplete="off" placeholder="Enter a referral code" /></div>
+        <div className="auth-field"><label htmlFor="referral-code">Referral code <span className="auth-optional">Optional</span></label><input id="referral-code" name="referralCode" type="text" autoComplete="off" value={referralCode} onChange={(event) => setReferralCode(event.target.value.toUpperCase())} placeholder="Enter a referral code" /></div>
         <label className="auth-consent"><input type="checkbox" name="terms" required /><span>I agree to the EchoVest terms and privacy policy.</span></label>
         <button className="auth-submit" type="submit" disabled={busy}>{busy ? "Creating account…" : "Create account"}</button>
         {notice && <p className="auth-notice" role="status">{notice}</p>}

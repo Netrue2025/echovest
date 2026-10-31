@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
+import { HydratedDocument, Types } from 'mongoose';
 
 export type UserDocument = HydratedDocument<User>;
 
@@ -10,6 +10,9 @@ export class User {
   @Prop({ required: true, trim: true, maxlength: 120 }) fullName!: string;
   @Prop({ required: true, unique: true, lowercase: true, trim: true, index: true }) email!: string;
   @Prop({ required: true, select: false }) passwordHash!: string;
+  @Prop({ unique: true, sparse: true, uppercase: true, trim: true, index: true }) referralCode?: string;
+  @Prop({ type: Types.ObjectId, ref: User.name, default: null, index: true }) referredBy?: Types.ObjectId | null;
+  @Prop({ enum: ['Blue', 'Elite', 'Silver', 'Gold', 'Platinum'], default: 'Blue' }) membershipLevel!: string;
   @Prop({ default: false, index: true }) isEmailVerified!: boolean;
   @Prop({ enum: ['user', 'admin'], default: 'user' }) role!: string;
   @Prop({ default: false, index: true }) isSuperAdmin!: boolean;
