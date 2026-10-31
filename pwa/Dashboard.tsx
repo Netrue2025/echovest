@@ -3,7 +3,7 @@
 import {
   ArrowDownLeft, ArrowRight, ArrowUpRight, Award, Check, ChevronDown, Copy,
   CircleHelp, Crown, Gem, Home, LogOut, Medal, Menu, ReceiptText, Settings, ShieldCheck,
-  Sparkles, Users, Wallet, X, Zap, User, Plus,
+  Sparkles, Users, Wallet, X, Zap, User, Plus, Link2, Share2, UserPlus, Coins,
 } from "lucide-react";
 import { type MouseEvent as ReactMouseEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -129,10 +129,38 @@ function ReferralsView({ balance }: { balance: number }) {
     try { await navigator.clipboard.writeText(link); setCopied(true); window.setTimeout(() => setCopied(false), 1800); }
     catch { setError("Could not copy the invite link. Please copy it from the field."); }
   }
-  return <><PageHeading title="Referrals" subtitle="Invite friends and follow your three-level network." />
-    <section className="dash-stat-grid dash-referral-stats"><article className="dash-stat-card"><small>Referral balance</small><strong>{money(balance)}</strong><span className="dash-stat-caption">Available for withdrawal</span></article><article className="dash-stat-card"><small>Earned to date</small><strong>{money(overview?.referralBalanceEarned ?? 0)}</strong><span className="dash-stat-caption">Referral commissions credited</span></article><article className="dash-stat-card"><small>Your level</small><strong>{overview?.membershipLevel ?? "Blue"}</strong><span className="dash-stat-caption">Commission settings follow your level</span></article></section>
-    <article className="dash-panel dash-full-panel"><div className="dash-panel-heading"><div><h2>Your invite link</h2><p>Your referral assignment is permanent after signup.</p></div></div>{overview ? <><div className="dash-wallet-actions"><input aria-label="Referral link" readOnly value={link} /><button className="dash-outline-button" type="button" onClick={() => void copyLink()}>{copied ? <Check size={15} /> : <Copy size={15} />}{copied ? "Copied" : "Copy link"}</button></div><p className="dash-deposit-helper">Referral code: <strong>{overview.referralCode}</strong>. Signup-only bonuses are not awarded.</p></> : <p className="dash-deposit-helper">{error || "Loading your invite link…"}</p>}</article>
-    <article className="dash-panel dash-full-panel"><div className="dash-panel-heading"><div><h2>Your downline</h2><p>Names and commissions earned from each downliner; their wallet balances remain private.</p></div><span className="dash-soft-count">{overview ? overview.downliners.length : 0} members</span></div>{error && <p className="dash-notification-error" role="alert">{error}</p>}{overview?.downliners.length ? <div className="dash-activity-list">{overview.downliners.map((member) => <div className="dash-activity-row" key={member.id}><span className="dash-activity-icon in"><Users size={18} /></span><span className="dash-activity-main"><b>{member.fullName}</b><small>Tier {member.tier}{member.joinedAt ? ` · Joined ${new Date(member.joinedAt).toLocaleDateString()}` : ""}</small></span><span className="dash-activity-amount"><b>{money(member.earned)}</b><small>Earned from member</small></span></div>)}</div> : <p className="dash-deposit-helper">{overview ? "Your referral network will appear here when people join with your link." : "Loading your network…"}</p>}</article>
+  async function shareLink() {
+    if (!link) return;
+    if (navigator.share) {
+      try { await navigator.share({ title: "Join me on EchoVest", text: "Sign up with my referral link on EchoVest.", url: link }); }
+      catch (cause) { if (cause instanceof Error && cause.name !== "AbortError") setError("Could not open the share menu."); }
+    } else await copyLink();
+  }
+  const memberCount = overview ? overview.counts.tier1 + overview.counts.tier2 + overview.counts.tier3 : 0;
+  return <><PageHeading title="Referrals" subtitle="Invite friends, grow your network, and track your referral rewards." />
+    <section className="dash-referral-hero">
+      <div className="dash-referral-hero-copy"><span className="dash-referral-hero-icon"><Users size={19} /></span><p className="dash-referral-hero-kicker">GROW YOUR NETWORK</p><h2>Good things grow<br />when shared.</h2><p>Invite people to EchoVest and follow your community across three referral tiers.</p>
+        {overview && <div className="dash-referral-code"><span>Your invite code</span><strong>{overview.referralCode}</strong><span className="dash-referral-level"><Award size={14} /> {overview.membershipLevel} member</span></div>}
+      </div>
+      <div className="dash-referral-hero-art" aria-hidden="true"><span className="dash-referral-orbit orbit-one"/><span className="dash-referral-orbit orbit-two"/><span className="dash-referral-person person-one"><User size={24}/></span><span className="dash-referral-person person-two"><User size={21}/></span><span className="dash-referral-person person-three"><User size={18}/></span><span className="dash-referral-connecting"><Link2 size={20}/></span></div>
+    </section>
+    <section className="dash-referral-metrics" aria-label="Referral summary">
+      <article className="dash-referral-metric"><span className="metric-icon mint"><Wallet size={18}/></span><div><small>Available rewards</small><strong>{money(balance)}</strong><span>Referral balance</span></div></article>
+      <article className="dash-referral-metric"><span className="metric-icon gold"><Coins size={18}/></span><div><small>Total earned</small><strong>{money(overview?.referralBalanceEarned ?? 0)}</strong><span>Commission credited</span></div></article>
+      <article className="dash-referral-metric"><span className="metric-icon blue"><UserPlus size={18}/></span><div><small>Network members</small><strong>{overview ? memberCount : "?"}</strong><span>Across all three tiers</span></div></article>
+    </section>
+    <section className="dash-referral-lower-grid">
+      <article className="dash-panel dash-referral-invite-panel"><div className="dash-panel-heading"><div><h2>Your invite link</h2><p>Friends who sign up with this link join your network.</p></div><span className="dash-referral-link-mark"><Link2 size={17}/></span></div>
+        {overview ? <><div className="dash-referral-link-box"><input aria-label="Referral link" readOnly value={link} /><button className="dash-outline-button" type="button" onClick={() => void copyLink()}>{copied ? <Check size={15}/> : <Copy size={15}/>}<span>{copied ? "Copied" : "Copy link"}</span></button></div><button type="button" className="dash-referral-share" onClick={() => void shareLink()}><Share2 size={15}/> Share invite link</button><p className="dash-referral-footnote">Your referral assignment is permanent after signup. Signup-only bonuses are not awarded.</p></> : <p className="dash-deposit-helper">{error || "Loading your invite link?"}</p>}
+      </article>
+      <article className="dash-panel dash-referral-network-panel"><div className="dash-panel-heading"><div><h2>Network overview</h2><p>Your community across three referral tiers.</p></div><span className="dash-soft-count">{overview ? `${memberCount} members` : "Loading"}</span></div>
+        <div className="dash-referral-tiers">{([1, 2, 3] as const).map((tier) => { const count = overview?.counts[`tier${tier}`] ?? 0; return <div className="dash-referral-tier" key={tier}><span className={`dash-referral-tier-mark tier-${tier}`}>{tier}</span><span><strong>Tier {tier}</strong><small>{tier === 1 ? "Direct invites" : tier === 2 ? "Second level" : "Third level"}</small></span><b>{count}</b></div>; })}</div>
+      </article>
+    </section>
+    <article className="dash-panel dash-full-panel dash-referral-downline"><div className="dash-panel-heading"><div><h2>Your downline</h2><p>Review member activity and commissions. Their wallet balances remain private.</p></div><span className="dash-soft-count">{overview ? `${overview.downliners.length} shown` : "?"}</span></div>
+      {error && <p className="dash-notification-error" role="alert">{error}</p>}
+      {overview?.downliners.length ? <div className="dash-referral-members">{overview.downliners.map((member) => <div className="dash-referral-member" key={member.id}><span className="dash-referral-member-avatar">{member.fullName.trim().charAt(0).toUpperCase()}</span><span className="dash-referral-member-name"><strong>{member.fullName}</strong><small>{member.joinedAt ? `Joined ${new Date(member.joinedAt).toLocaleDateString()}` : "EchoVest member"}</small></span><span className={`dash-referral-member-tier tier-${member.tier}`}>Tier {member.tier}</span><span className="dash-referral-member-earned"><strong>{money(member.earned)}</strong><small>Commission earned</small></span></div>)}</div> : <div className="dash-referral-empty"><span><Users size={21}/></span><strong>{overview ? "Your network starts here" : "Loading your network?"}</strong><p>{overview ? "Share your invite link to welcome your first member." : "Your referral members will appear here."}</p></div>}
+    </article>
   </>;
 }
 
