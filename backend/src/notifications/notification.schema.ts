@@ -11,7 +11,7 @@ export class UserNotification {
   @Prop({ required: true, trim: true, maxlength: 120 }) title!: string;
   @Prop({ required: true, trim: true, maxlength: 2000 }) message!: string;
   @Prop({ default: 'general', enum: ['general', 'deposit', 'withdrawal'] }) category!: string;
-  @Prop({ default: null, index: true }) readAt?: Date | null;
+  @Prop({ type: Date, default: null, index: true }) readAt?: Date | null;
 }
 export const UserNotificationSchema = SchemaFactory.createForClass(UserNotification);
 UserNotificationSchema.index({ userId: 1, createdAt: -1 });
