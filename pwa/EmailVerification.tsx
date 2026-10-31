@@ -4,6 +4,7 @@ import { ClipboardEvent, FormEvent, KeyboardEvent, useEffect, useRef, useState }
 import { useRouter } from "next/navigation";
 import { authRequest } from "../lib/auth-api";
 import { AppPreloader } from "../components/AppPreloader";
+import { AuthSuccess } from "./AuthSuccess";
 
 export function EmailVerificationPage() {
   const router = useRouter();
@@ -11,6 +12,7 @@ export function EmailVerificationPage() {
   const [digits, setDigits] = useState(["", "", "", "", "", ""]);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [verified, setVerified] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(60);
   const inputs = useRef<Array<HTMLInputElement | null>>([]);
 
@@ -51,7 +53,7 @@ export function EmailVerificationPage() {
     try {
       await authRequest("verify-email", { email, code: digits.join("") });
       sessionStorage.removeItem("echovest-pending-email");
-      router.replace("/dashboard");
+      setVerified(true);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Unable to verify this code. Please try again.");
     } finally { setBusy(false); }
@@ -70,6 +72,7 @@ export function EmailVerificationPage() {
   }
 
   if (!email) return <main className="verify-page" aria-busy="true" />;
+  if (verified) return <AuthSuccess title="Email Verified!" description="Your email has been successfully verified." action="Continue to App" onContinue={() => router.replace("/dashboard")} />;
   const complete = digits.every(Boolean);
   return <>{busy && <AppPreloader label="Verifying your email…" />}<main className="verify-page">
     <section className="verify-card" aria-labelledby="verify-title">

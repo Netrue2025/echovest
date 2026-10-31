@@ -1,7 +1,7 @@
 "use client";
 
 import { Eye, EyeOff } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { countries } from "../lib/countries";
 import { authRequest } from "../lib/auth-api";
@@ -95,12 +95,6 @@ export function SignInPage() {
   const [password, setPassword] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    if (sessionStorage.getItem("echovest-password-reset-complete")) {
-      sessionStorage.removeItem("echovest-password-reset-complete");
-      setNotice("Your password has been reset. Sign in with your new password.");
-    }
-  }, []);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);

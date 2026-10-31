@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { AppPreloader } from "../components/AppPreloader";
 import { authRequest } from "../lib/auth-api";
 import styles from "./PasswordResetPages.module.css";
+import { AuthSuccess } from "./AuthSuccess";
 
 function PasswordField({ id, label, placeholder, value, onChange }: { id: string; label: string; placeholder: string; value: string; onChange: (value: string) => void }) {
   const [visible, setVisible] = useState(false);
@@ -48,6 +49,7 @@ export function ResetPasswordPage() {
   const [confirmation, setConfirmation] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [resetComplete, setResetComplete] = useState(false);
   const inputs = useRef<Array<HTMLInputElement | null>>([]);
   useEffect(() => {
     const saved = sessionStorage.getItem("echovest-password-reset-email") ?? "";
@@ -77,12 +79,12 @@ export function ResetPasswordPage() {
     try {
       await authRequest("reset-password", { email, code: digits.join(""), newPassword: password, passwordConfirmation: confirmation });
       sessionStorage.removeItem("echovest-password-reset-email");
-      sessionStorage.setItem("echovest-password-reset-complete", "true");
-      router.replace("/sign-in");
+      setResetComplete(true);
     } catch (error) { setNotice(error instanceof Error ? error.message : "Unable to reset your password. Please try again."); }
     finally { setBusy(false); }
   }
   if (!email) return <main className={styles.page} aria-busy="true" />;
+  if (resetComplete) return <AuthSuccess title="Password Changed!" description="Your password has been successfully updated. Sign in with your new password to continue." action="Continue to Sign In" onContinue={() => router.replace("/sign-in")} />;
   return <>{busy && <AppPreloader label="Resetting your password…" />}<main className={styles.page}><section className={styles.card} aria-labelledby="reset-title">
     <header className={styles.heading}><h1 id="reset-title">Reset Your Password</h1><p>Enter the code we sent to <strong>{email}</strong> and your new password below.</p></header>
     <form className={styles.form} onSubmit={submit}>
