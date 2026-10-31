@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, Logger, OnModuleInit, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, Logger, OnModuleInit, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { UsersService } from '../users/users.service.js';
@@ -15,6 +15,7 @@ export type AdminActor = { id: string; email: string };
 @Injectable()
 export class AdminService implements OnModuleInit {
   private readonly logger = new Logger(AdminService.name);
+  private superAdminConfigured = false;
   constructor(
     private readonly config: ConfigService,
     private readonly users: UsersService,
@@ -27,12 +28,17 @@ export class AdminService implements OnModuleInit {
     const email = this.config.get<string>('SUPER_ADMIN_EMAIL')?.trim().toLowerCase();
     const password = this.config.get<string>('SUPER_ADMIN_PASSWORD');
     if (!email && !password) { this.logger.warn('Super-admin login is disabled until SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD are configured.'); return; }
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !password || password.length < 12) throw new Error('Configure a valid SUPER_ADMIN_EMAIL and a SUPER_ADMIN_PASSWORD of at least 12 characters.');
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !password || password.length < 12) {
+      this.logger.error('Super-admin login is disabled: configure a valid SUPER_ADMIN_EMAIL and a SUPER_ADMIN_PASSWORD of at least 12 characters.');
+      return;
+    }
     const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
     await this.users.upsertSuperAdmin(email, passwordHash, [...ADMIN_PERMISSION_CODES]);
+    this.superAdminConfigured = true;
   }
   async signin(emailInput: string, password: string) {
     const user = await this.users.findByEmail(emailInput.trim().toLowerCase(), true);
+    if (!user && !this.superAdminConfigured) throw new ServiceUnavailableException('Admin sign-in is not configured. Set SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD on the backend service.');
     if (!user || user.role !== 'admin' || user.isDisabled || !(await argon2.verify(user.passwordHash, password))) throw new UnauthorizedException('Invalid admin email or password.');
     const session = await this.sessions.create(String(user._id));
     return { user: { id: String(user._id), fullName: user.fullName, email: user.email, isSuperAdmin: user.isSuperAdmin ?? false, permissions: user.adminPermissions ?? [] }, session };
