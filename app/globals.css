@@ -420,3 +420,12 @@ body{overflow-x:hidden}@media(max-width:900px){.grid-lines>.container{grid-templ
   .dash-level-list{display:flex;overflow-x:auto;gap:9px;padding:3px 2px 12px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch}
   .dash-level-list .dash-level-badge{flex:0 0 92px;scroll-snap-align:start}
 }
+.dash-balance-card:before,.dash-mobile-balance:before{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;background-image:radial-gradient(ellipse at 88% 12%,#F0B90B28,transparent 42%),url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 150'%3E%3Cg fill='none' stroke='%23F0B90B' stroke-opacity='.13' stroke-width='1'%3E%3Cpath d='M0 30H300M0 70H300M0 110H300M45 0V150M105 0V150M165 0V150M225 0V150M285 0V150'/%3E%3C/g%3E%3Cpath d='M0 119C29 111 39 101 64 105S100 88 121 94 154 71 176 79 211 54 231 60 271 36 300 31V150H0Z' fill='%23F0B90B' fill-opacity='.055'/%3E%3Cpath d='M0 119C29 111 39 101 64 105S100 88 121 94 154 71 176 79 211 54 231 60 271 36 300 31' fill='none' stroke='%23F0B90B' stroke-opacity='.4' stroke-width='2.5'/%3E%3Cg stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M57 55V91M105 43V78M153 53V82M201 22V59M249 11V44' stroke='%2300C087' stroke-opacity='.55'/%3E%3C/g%3E%3Cg fill='%2300C087' fill-opacity='.32'%3E%3Crect x='51' y='65' width='12' height='17' rx='2'/%3E%3Crect x='99' y='52' width='12' height='17' rx='2'/%3E%3Crect x='147' y='61' width='12' height='14' rx='2'/%3E%3Crect x='195' y='33' width='12' height='17' rx='2'/%3E%3Crect x='243' y='19' width='12' height='17' rx='2'/%3E%3C/g%3E%3C/svg%3E");background-repeat:no-repeat;background-size:auto,260px 130px;background-position:center,right -14px bottom 4px;opacity:.92}
+.dash-balance-card:after{z-index:0}
+.dash-balance-card,.dash-mobile-balance{isolation:isolate}
+.dash-balance-card>.dash-balance-top,.dash-balance-card>strong,.dash-balance-card>p,.dash-balance-card>.dash-balance-footer{position:relative;z-index:1}
+@media(max-width:800px){
+  .dash-mobile-balance{position:relative;overflow:hidden;isolation:isolate}
+  .dash-mobile-balance:before{background-size:auto,205px 108px;background-position:center,right -23px bottom 1px;opacity:.88}
+  .dash-mobile-balance-head,.dash-mobile-balance>strong,.dash-mobile-balance-actions{position:relative;z-index:1}
+}
