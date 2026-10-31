@@ -10,7 +10,7 @@ export const DEFAULT_REFERRAL_RATES: ReferralRate[] = MEMBERSHIP_LEVELS.map((lev
 @Schema({ collection: 'referral_settings' })
 export class ReferralSettings {
   @Prop({ required: true, unique: true, default: 'platform' }) key!: string;
-  @Prop({ type: [{ level: String, tier1: Number, tier2: Number, tier3: Number }], default: [] }) rates!: ReferralRate[];
+  @Prop({ type: [{ _id: false, level: String, tier1: Number, tier2: Number, tier3: Number }], default: [] }) rates!: ReferralRate[];
 }
 export const ReferralSettingsSchema = SchemaFactory.createForClass(ReferralSettings);
 
