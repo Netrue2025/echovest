@@ -22,6 +22,6 @@ export class PushSubscriptionRecord {
   @Prop({ required: true, unique: true }) endpoint!: string;
   @Prop({ required: true }) p256dh!: string;
   @Prop({ required: true }) auth!: string;
-  @Prop({ default: null }) expirationTime?: number | null;
+  @Prop({ type: Number, default: null }) expirationTime?: number | null;
 }
 export const PushSubscriptionRecordSchema = SchemaFactory.createForClass(PushSubscriptionRecord);
