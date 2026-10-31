@@ -1,7 +1,7 @@
 "use client";
 
 import { Eye, EyeOff } from "lucide-react";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { countries } from "../lib/countries";
 import { authRequest } from "../lib/auth-api";
@@ -95,6 +95,12 @@ export function SignInPage() {
   const [password, setPassword] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (sessionStorage.getItem("echovest-password-reset-complete")) {
+      sessionStorage.removeItem("echovest-password-reset-complete");
+      setNotice("Your password has been reset. Sign in with your new password.");
+    }
+  }, []);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
@@ -113,7 +119,7 @@ export function SignInPage() {
       <form className="auth-form" onSubmit={submit}>
         <div className="auth-field"><label htmlFor="signin-email">Email</label><input id="signin-email" name="email" type="email" autoComplete="email" placeholder="Enter your email" required /></div>
         <PasswordField id="signin-password" label="Password" placeholder="Enter your password" value={password} onChange={setPassword} autoComplete="current-password" />
-        <div className="auth-login-options"><label className="auth-remember"><input type="checkbox" name="remember" /><span>Remember me</span></label><button type="button" className="auth-text-button" onClick={() => setNotice("Password recovery will be available when account services are connected.")}>Forgot password?</button></div>
+        <div className="auth-login-options"><label className="auth-remember"><input type="checkbox" name="remember" /><span>Remember me</span></label><a className="auth-text-button" href="/forgot-password">Forgot password?</a></div>
         <button className="auth-submit" type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
         {notice && <p className="auth-notice" role="status">{notice}</p>}
       </form>

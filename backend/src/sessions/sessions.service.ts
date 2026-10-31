@@ -17,4 +17,5 @@ export class SessionsService {
   }
   findByToken(token: string) { return this.sessions.findOne({ tokenHash: hash(token), expiresAt: { $gt: new Date() } }).exec(); }
   revoke(token: string) { return this.sessions.deleteOne({ tokenHash: hash(token) }).exec(); }
+  revokeAllForUser(userId: string) { return this.sessions.deleteMany({ userId }).exec(); }
 }

@@ -14,3 +14,7 @@ export class SigninDto {
   @IsEmail() @MaxLength(254) email!: string;
   @IsString() @MinLength(1) @MaxLength(128) password!: string;
 }
+export class ResetPasswordDto extends EmailCodeDto {
+  @IsString() @MinLength(8) @MaxLength(128) @Matches(/[A-Z]/) @Matches(/\d/) @Matches(/[^A-Za-z0-9]/) newPassword!: string;
+  @IsString() @MinLength(8) @MaxLength(128) passwordConfirmation!: string;
+}

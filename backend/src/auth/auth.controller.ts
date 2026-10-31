@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { EmailCodeDto, EmailDto, SigninDto, SignupDto } from './auth.dto.js';
+import { EmailCodeDto, EmailDto, ResetPasswordDto, SigninDto, SignupDto } from './auth.dto.js';
 import { AuthService } from './auth.service.js';
 import { OriginGuard } from './origin.guard.js';
 import { SessionGuard } from './session.guard.js';
@@ -25,6 +25,8 @@ export class AuthController {
     return { message: 'Your email is verified.', user: result.user };
   }
   @Post('resend-otp') @UseGuards(OriginGuard) resendOtp(@Body() body: EmailDto) { return this.auth.resendOtp(body.email); }
+  @Post('forgot-password') @UseGuards(OriginGuard) forgotPassword(@Body() body: EmailDto) { return this.auth.requestPasswordReset(body.email); }
+  @Post('reset-password') @UseGuards(OriginGuard) resetPassword(@Body() body: ResetPasswordDto) { return this.auth.resetPassword(body); }
   @Post('signin') @UseGuards(OriginGuard)
   async signin(@Body() body: SigninDto, @Res({ passthrough: true }) response: Response) {
     const result = await this.auth.signin(body.email, body.password);

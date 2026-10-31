@@ -13,6 +13,7 @@ export class UsersService {
   findByEmailById(id: string) { return this.users.findById(id).exec(); }
   create(data: Pick<User, 'fullName' | 'email' | 'passwordHash'>) { return this.users.create({ ...data, email: data.email.trim().toLowerCase() }); }
   async markVerified(userId: string) { return this.users.findByIdAndUpdate(userId, { isEmailVerified: true }, { new: true }).exec(); }
+  async updatePassword(userId: string, passwordHash: string) { return this.users.findByIdAndUpdate(userId, { passwordHash }, { new: true }).exec(); }
   async delete(userId: string) { await this.users.findByIdAndDelete(userId).exec(); }
   safe(user: UserDocument | User) { return { id: String((user as UserDocument)._id), fullName: user.fullName, email: user.email, role: user.role }; }
 }

@@ -30,7 +30,7 @@ describe('AuthService', () => {
   beforeEach(() => {
     user = null; verification = null; sentCode = '';
     vi.clearAllMocks();
-    service = new AuthService(users as never, sessions as never, email as never, config as never, records as never);
+    service = new AuthService(users as never, sessions as never, email as never, config as never, records as never, records as never);
   });
 
   it('creates an unverified account, hashes its password, and emails an OTP', async () => {
