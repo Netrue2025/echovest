@@ -35,12 +35,21 @@ Add these variables to the backend service in Railway (do not upload `.env`):
 - `EMAIL_FROM`: valid sender, for example `EchoVest <verify@your-domain.com>`.
 - `FRONTEND_URL`: exact public frontend origin, for example `https://your-frontend.up.railway.app` (no path or trailing slash).
 - `SESSION_SECRET`: a unique random secret of at least 32 characters.
+- `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_PASSWORD`: environment-controlled super-admin login. Use a dedicated email and a unique password of at least 12 characters. The backend seeds this account at startup; keep these values private and redeploy the backend after changing them.
 - `NODE_ENV`: `production`.
 - `SESSION_SAME_SITE`: `none` when the frontend and API are on different sites; use HTTPS. `lax` is suitable when both are same-site.
 
 Generate a public domain for the backend service. In the frontend Railway service, set `NEXT_PUBLIC_API_URL` to that backend's HTTPS origin, without `/auth`, then redeploy the frontend because Next.js embeds this public variable during its build.
 
 ## Routes
+
+Admin routes:
+
+- `POST /admin/auth/signin`, `POST /admin/auth/signout`, and `GET /admin/auth/me` provide cookie-backed admin sessions.
+- `GET /admin/users` and `PATCH /admin/users/:id`, `PATCH /admin/users/:id/password`, `PATCH /admin/users/:id/controls`, `PATCH /admin/users/:id/withdrawals`, and `DELETE /admin/users/:id` provide permission-protected user administration.
+- `GET /admin/admins`, `POST /admin/admins`, `PATCH /admin/admins/:id/permissions`, and `PATCH /admin/admins/:id/status` are super-admin-only routes.
+
+Admin accounts use the same HttpOnly session cookie as user sign-in and are checked against their assigned server-side permissions on every admin request. Disabling a user account or changing their password revokes all active sessions. The withdrawal access flag is stored on the user account for the withdrawal service to enforce when that service is connected.
 
 - `POST /auth/signup` — create an unverified account and send a six-digit OTP.
 - `POST /auth/verify-email` — verify the OTP and issue the HttpOnly session cookie.

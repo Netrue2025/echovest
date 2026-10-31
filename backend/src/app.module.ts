@@ -8,6 +8,7 @@ import { EmailModule } from './email/email.module.js';
 import { SessionsModule } from './sessions/sessions.module.js';
 import { UsersModule } from './users/users.module.js';
 import { RateLimitGuard } from './common/rate-limit.guard.js';
+import { AdminModule } from './admin/admin.module.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -31,6 +32,7 @@ function validateEnvironment(config: Record<string, unknown>) {
     SessionsModule,
     EmailModule,
     AuthModule,
+    AdminModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: RateLimitGuard }],
 })

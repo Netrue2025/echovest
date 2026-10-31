@@ -14,6 +14,7 @@ export class SessionGuard implements CanActivate {
     if (!session) throw new UnauthorizedException('Your session has expired. Sign in again.');
     const user = await this.users.findByEmailById(String(session.userId));
     if (!user) throw new UnauthorizedException('Sign in to continue.');
+    if (user.isDisabled) throw new UnauthorizedException('This account is disabled. Contact support.');
     request.user = user;
     return true;
   }

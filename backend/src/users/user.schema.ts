@@ -5,11 +5,17 @@ export type UserDocument = HydratedDocument<User>;
 
 @Schema({ timestamps: true, collection: 'users' })
 export class User {
+  _id?: unknown;
+  createdAt?: Date;
   @Prop({ required: true, trim: true, maxlength: 120 }) fullName!: string;
   @Prop({ required: true, unique: true, lowercase: true, trim: true, index: true }) email!: string;
   @Prop({ required: true, select: false }) passwordHash!: string;
   @Prop({ default: false, index: true }) isEmailVerified!: boolean;
   @Prop({ enum: ['user', 'admin'], default: 'user' }) role!: string;
+  @Prop({ default: false, index: true }) isSuperAdmin!: boolean;
+  @Prop({ type: [String], default: [] }) adminPermissions!: string[];
+  @Prop({ default: false, index: true }) isDisabled!: boolean;
+  @Prop({ default: false, index: true }) withdrawalsDisabled!: boolean;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

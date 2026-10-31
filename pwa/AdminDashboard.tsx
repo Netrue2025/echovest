@@ -1,82 +1,182 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ArrowDownLeft, ArrowRight, ArrowUpRight, BarChart3, Bell, ChevronDown,
-  CircleDollarSign, ClipboardList, Download, LayoutDashboard, Search,
-  Settings2, ShieldCheck, Signal, UserRound, Users, Wallet, type LucideIcon,
+  ArrowDownLeft, ArrowRight, ArrowUpRight, BarChart3, Check, ChevronDown, ClipboardList,
+  Download, LayoutDashboard, LockKeyhole, LogOut, Search, ShieldCheck, Signal,
+  UserRound, Users, Wallet, X, type LucideIcon,
 } from "lucide-react";
+import { adminRequest } from "../lib/admin-api";
 
-const sections = [
-  { id: "overview", label: "Overview", icon: LayoutDashboard },
-  { id: "users", label: "Users", icon: Users },
-  { id: "deposits", label: "Deposits", icon: ArrowDownLeft },
-  { id: "withdrawals", label: "Withdrawals", icon: ArrowUpRight },
-  { id: "wallets", label: "Wallets", icon: Wallet },
-  { id: "signals", label: "Copy signals", icon: Signal },
-  { id: "referrals", label: "Referrals & levels", icon: UserRound },
-  { id: "reports", label: "Reports", icon: BarChart3 },
-  { id: "audit", label: "Audit log", icon: ClipboardList },
-  { id: "roles", label: "Admin roles", icon: ShieldCheck },
+type AdminActor = { id: string; fullName: string; email: string; isSuperAdmin: boolean; permissions: string[] };
+type ManagedUser = { id: string; fullName: string; email: string; role: string; isSuperAdmin: boolean; isEmailVerified: boolean; isDisabled: boolean; withdrawalsDisabled: boolean; createdAt?: string };
+type ManagedAdmin = { id: string; fullName: string; email: string; permissions: string[]; disabled: boolean; createdAt?: string };
+type AuditEvent = { id: string; actorId: string; actorEmail: string; action: string; targetType: string; targetId: string; targetLabel: string; detail: string; createdAt?: string };
+
+const permissionGroups = [
+  { id: "dashboard", label: "Dashboard", description: "View platform overview and summary", permissions: [{ code: "dashboard.view", label: "View overview" }] },
+  { id: "users", label: "User accounts", description: "Search and manage registered users", permissions: [{ code: "users.view", label: "View users" }, { code: "users.manage", label: "Edit, disable, reset passwords, and delete users" }] },
+  { id: "wallets", label: "Wallets and finance", description: "Manage wallet settings and transaction operations", permissions: [{ code: "wallets.view", label: "View wallets" }, { code: "deposits.manage", label: "Manage deposits" }, { code: "withdrawals.manage", label: "Manage withdrawals and withdrawal access" }] },
+  { id: "trading", label: "Copy trading", description: "Manage copy-trading signals and strategies", permissions: [{ code: "signals.manage", label: "Manage signals" }] },
+  { id: "referrals", label: "Referrals and levels", description: "View referral networks and membership levels", permissions: [{ code: "referrals.view", label: "View referrals and levels" }] },
+  { id: "oversight", label: "Reports and audit", description: "View reports and administrative audit records", permissions: [{ code: "reports.view", label: "View reports" }, { code: "audit.view", label: "View audit log" }] },
+  { id: "administrators", label: "Administrator access", description: "Super-admin only: create administrators and assign section access", permissions: [{ code: "admins.manage", label: "Manage admin accounts (super-admin only)" }] },
 ];
-
-const records = [
-  { category: "Deposits", name: "Jeremiah O.", detail: "USDT · Address not configured", amount: "$500.00", status: "Pending" },
-  { category: "Withdrawals", name: "Amara M.", detail: "USDT · Destination pending", amount: "$180.00", status: "Review" },
-  { category: "Users", name: "Tunde O.", detail: "tunde@example.com · Blue", amount: "—", status: "Active" },
-  { category: "Wallets", name: "Wallet provisioning", detail: "Assigned addresses · provider not connected", amount: "—", status: "Pending" },
-  { category: "Copy signals", name: "BTC Trend Strategy", detail: "24 sample copiers · status preview", amount: "—", status: "Active" },
-  { category: "Referrals", name: "Network commissions", detail: "Tier 1–3 · sample payout totals", amount: "$8,940", status: "Active" },
-  { category: "Admin roles", name: "Finance Admin", detail: "Withdrawal review · example role", amount: "—", status: "Active" },
-  { category: "Audit log", name: "Level updated", detail: "Admin preview · sample audit event", amount: "—", status: "Logged" },
-  { category: "Deposits", name: "Kemi I.", detail: "USDT · Awaiting confirmation", amount: "$1,200.00", status: "Confirming" },
+const sections: { id: string; label: string; icon: LucideIcon; permission: string }[] = [
+  { id: "overview", label: "Overview", icon: LayoutDashboard, permission: "dashboard.view" },
+  { id: "users", label: "Users", icon: Users, permission: "users.view" },
+  { id: "deposits", label: "Deposits", icon: ArrowDownLeft, permission: "deposits.manage" },
+  { id: "withdrawals", label: "Withdrawals", icon: ArrowUpRight, permission: "withdrawals.manage" },
+  { id: "wallets", label: "Wallets", icon: Wallet, permission: "wallets.view" },
+  { id: "signals", label: "Copy signals", icon: Signal, permission: "signals.manage" },
+  { id: "referrals", label: "Referrals & levels", icon: UserRound, permission: "referrals.view" },
+  { id: "reports", label: "Reports", icon: BarChart3, permission: "reports.view" },
+  { id: "audit", label: "Audit log", icon: ClipboardList, permission: "audit.view" },
+  { id: "roles", label: "Admin access", icon: ShieldCheck, permission: "admins.manage" },
 ];
-
 const sectionCopy: Record<string, string> = {
-  overview: "Platform activity at a glance.", users: "Search accounts and review membership status.", deposits: "Track incoming payments and blockchain confirmations.",
-  withdrawals: "Review requests against the 1–24 hour processing window.", wallets: "Monitor issued deposit addresses and wallet status.", signals: "Manage published strategies and copier counts.",
-  referrals: "Review network activity and membership progression.", reports: "Prepare platform activity reports.", audit: "Review administrative actions and system events.", roles: "Review administrator accounts and permission scopes.",
+  overview: "Platform management and account activity.", users: "Review registered accounts and manage account access.", deposits: "Deposit operations and payment status.",
+  withdrawals: "Withdrawal operations and user withdrawal access.", wallets: "Wallet settings and account wallet status.", signals: "Published copy-trading signals and strategies.",
+  referrals: "Referral networks and membership levels.", reports: "Platform reports and activity summaries.", audit: "Review administrative actions and system events.", roles: "Create admin accounts and assign access to platform sections.",
+};
+const sectionPlaceholder: Record<string, string> = {
+  deposits: "Deposit records will appear here when the deposit ledger is connected.",
+  withdrawals: "Withdrawal requests will appear here when withdrawal processing is connected.",
+  wallets: "Wallet provisioning and address controls will appear here when the wallet service is connected.",
+  signals: "Published strategies and copier controls will appear here when signal management is connected.",
+  referrals: "Referral and level records will appear here when referral services are connected.",
+  reports: "Reports will be available when platform transaction data is connected.",
+  audit: "Administrative actions will appear here after the audit log service is connected.",
 };
 
-function Metric({ icon: Icon, label, value, note }: { icon: LucideIcon; label: string; value: string; note: string }) {
-  return <article className="admin-metric"><span><Icon size={18} /></span><small>{label}</small><strong>{value}</strong><p>{note}</p></article>;
+function LoginForm({ onLogin }: { onLogin: (actor: AdminActor) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget);
+    setBusy(true); setError("");
+    try {
+      const result = await adminRequest<{ user: AdminActor }>("auth/signin", "POST", { email: values.get("email"), password: values.get("password") });
+      onLogin(result.user);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to sign in to the admin console."); }
+    finally { setBusy(false); }
+  }
+  return <main className="admin-login-shell"><form className="admin-login-card" onSubmit={submit}>
+    <div className="admin-login-mark"><ShieldCheck size={25} /></div><p className="admin-login-kicker">ECHOVEST ADMIN</p><h1>Admin sign in</h1><p className="admin-login-copy">Sign in with your administrator account to access the management console.</p>
+    <label>Email<input name="email" type="email" autoComplete="username" placeholder="Admin email" required /></label><label>Password<input name="password" type="password" autoComplete="current-password" placeholder="Admin password" required /></label>
+    {error && <p className="admin-action-notice error" role="alert">{error}</p>}<button className="admin-primary-button" type="submit" disabled={busy}><LockKeyhole size={15} />{busy ? "Signing in…" : "Sign in securely"}</button>
+  </form></main>;
 }
 
 export function AdminDashboard() {
+  const [actor, setActor] = useState<AdminActor | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [section, setSection] = useState("overview");
+  const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [admins, setAdmins] = useState<ManagedAdmin[]>([]);
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [query, setQuery] = useState("");
-  const current = sections.find((item) => item.id === section) ?? sections[0];
-  const visibleRecords = useMemo(() => records.filter((item) => {
-    const matchesSearch = `${item.name} ${item.detail} ${item.status}`.toLowerCase().includes(query.toLowerCase());
-    const matchesSection = section === "overview" || section === "reports" ||
-      (section === "users" && item.category === "Users") || (section === "audit" && item.category === "Audit log") ||
-      (section === "deposits" && item.category === "Deposits") || (section === "withdrawals" && item.category === "Withdrawals") ||
-      (section === "referrals" && item.category === "Referrals") || (section === "wallets" && item.category === "Wallets") ||
-      (section === "signals" && item.category === "Copy signals") || (section === "roles" && item.category === "Admin roles");
-    return matchesSearch && matchesSection;
-  }), [query, section]);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const [selectedUser, setSelectedUser] = useState<ManagedUser | null>(null);
+  const [selectedAdmin, setSelectedAdmin] = useState<ManagedAdmin | null>(null);
+  const [newAdminOpen, setNewAdminOpen] = useState(false);
+  const [newPermissions, setNewPermissions] = useState<string[]>([]);
+
+  const can = useCallback((permission: string) => Boolean(actor?.isSuperAdmin || actor?.permissions.includes(permission) || (permission === "users.view" && actor?.permissions.includes("users.manage"))), [actor]);
+  const loadUsers = useCallback(async () => {
+    if (!actor?.isSuperAdmin && !actor?.permissions.some((permission) => permission === "users.view" || permission === "users.manage")) return;
+    setUsers(await adminRequest<ManagedUser[]>("users"));
+  }, [actor]);
+  const loadAdmins = useCallback(async () => {
+    if (!actor?.isSuperAdmin) return;
+    setAdmins(await adminRequest<ManagedAdmin[]>("admins"));
+  }, [actor]);
+  const loadAudit = useCallback(async () => {
+    if (!actor?.isSuperAdmin && !actor?.permissions.includes("audit.view")) return;
+    setAuditEvents(await adminRequest<AuditEvent[]>("audit"));
+  }, [actor]);
+
+  useEffect(() => {
+    let active = true;
+    adminRequest<{ user: AdminActor }>("auth/me").then((result) => { if (active) setActor(result.user); }).catch(() => undefined).finally(() => { if (active) setAuthLoading(false); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (!actor) return;
+    let active = true;
+    Promise.all([loadUsers(), loadAdmins(), loadAudit()]).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Could not load admin data."); });
+    return () => { active = false; };
+  }, [actor, loadUsers, loadAdmins, loadAudit]);
+
+  const visibleSections = useMemo(() => sections.filter((item) => item.id !== "roles" ? can(item.permission) : Boolean(actor?.isSuperAdmin)), [can, actor]);
+  const current = visibleSections.find((item) => item.id === section) ?? visibleSections[0];
+  useEffect(() => { if (current && current.id !== section) setSection(current.id); }, [current, section]);
+  const matches = (name: string, email: string, status: string) => `${name} ${email} ${status}`.toLowerCase().includes(query.toLowerCase());
+  const filteredUsers = users.filter((user) => matches(user.fullName, user.email, `${user.role} ${user.isDisabled ? "disabled" : "active"}`));
+  const filteredAdmins = admins.filter((admin) => matches(admin.fullName, admin.email, admin.disabled ? "disabled" : "active"));
+
+  async function reload() {
+    try { await Promise.all([loadUsers(), loadAdmins(), loadAudit()]); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not refresh data."); }
+  }
+  async function action(task: () => Promise<unknown>, success: string): Promise<boolean> {
+    setBusy(true); setError(""); setNotice("");
+    try { await task(); setNotice(success); await reload(); return true; }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "The requested change could not be saved."); return false; }
+    finally { setBusy(false); }
+  }
+  async function signOut() {
+    try { await adminRequest("auth/signout", "POST", {}); } catch { /* Clear the local admin view even if the session already expired. */ }
+    setActor(null); setUsers([]); setAdmins([]); setSection("overview");
+  }
+  if (authLoading) return <main className="admin-loading" aria-busy="true"><span className="admin-loading-orbit" /><p>Checking admin session…</p></main>;
+  if (!actor) return <LoginForm onLogin={(admin) => { setActor(admin); setError(""); }} />;
+  if (!current) return <main className="admin-loading"><ShieldCheck size={24} /><p>This admin account has no sections enabled yet. Contact the super admin.</p><button className="admin-outline-button" onClick={signOut}>Sign out</button></main>;
+
+  async function updateUserProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (!selectedUser) return;
+    const data = new FormData(event.currentTarget);
+    if (await action(() => adminRequest(`users/${selectedUser.id}`, "PATCH", { fullName: data.get("fullName"), email: data.get("email") }), "User details updated.")) setSelectedUser(null);
+  }
+  async function updateUserPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (!selectedUser) return;
+    const password = String(new FormData(event.currentTarget).get("password") ?? "");
+    await action(() => adminRequest(`users/${selectedUser.id}/password`, "PATCH", { password }), "Password changed and the user’s sessions were revoked.");
+  }
+  async function createAdmin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    if (await action(() => adminRequest("admins", "POST", { fullName: data.get("fullName"), email: data.get("email"), password: data.get("password"), permissions: newPermissions }), "Admin account created.")) { setNewAdminOpen(false); setNewPermissions([]); }
+  }
+  async function saveAdminPermissions() {
+    if (!selectedAdmin) return;
+    if (await action(() => adminRequest(`admins/${selectedAdmin.id}/permissions`, "PATCH", { permissions: newPermissions }), "Admin access updated.")) setSelectedAdmin(null);
+  }
+  const setPermission = (code: string) => setNewPermissions((currentPermissions) => currentPermissions.includes(code) ? currentPermissions.filter((item) => item !== code) : [...currentPermissions, code]);
 
   return <div className="admin-app">
-    <aside className="admin-sidebar"><a className="admin-brand" href="/dashboard"><span><BarChart3 size={20} /></span>EchoVest <small>ADMIN</small></a><nav className="admin-nav" aria-label="Admin navigation">{sections.map(({ id, label, icon: Icon }) => <button key={id} type="button" className={section === id ? "active" : ""} onClick={() => setSection(id)}><Icon size={18} /><span>{label}</span>{id === "deposits" && <i>2</i>}</button>)}</nav><div className="admin-sidebar-foot"><ShieldCheck size={17} /><span>Admin security controls required before production use.</span></div></aside>
+    <aside className="admin-sidebar"><a className="admin-brand" href="/admin"><span><BarChart3 size={20} /></span>EchoVest <small>ADMIN</small></a><nav className="admin-nav" aria-label="Admin navigation">{visibleSections.map(({ id, label, icon: Icon }) => <button key={id} type="button" className={section === id ? "active" : ""} onClick={() => { setSection(id); setQuery(""); }}><Icon size={18} /><span>{label}</span></button>)}</nav><div className="admin-sidebar-foot"><ShieldCheck size={17} /><span>{actor.isSuperAdmin ? "Super admin · all permissions enabled" : `${actor.permissions.length} access permissions enabled`}</span></div></aside>
     <main className="admin-main">
-      <header className="admin-topbar"><div><span>ADMIN CONSOLE</span><b>{current.label}</b></div><div><span className="admin-preview-pill">Demo data</span><button aria-label="Notifications" type="button"><Bell size={18} /><i /></button><span className="admin-avatar">A</span><span className="admin-user-label">Admin preview</span><ChevronDown size={15} /></div></header>
+      <header className="admin-topbar"><div><span>ADMIN CONSOLE</span><b>{current.label}</b></div><div><span className="admin-avatar">{actor.fullName.slice(0, 1).toUpperCase()}</span><span className="admin-user-label">{actor.isSuperAdmin ? "Super admin" : actor.fullName}</span><button type="button" className="admin-signout-button" onClick={signOut} aria-label="Sign out"><LogOut size={16} /></button></div></header>
       <section className="admin-content">
-        <div className="admin-heading"><div><p>PLATFORM MANAGEMENT</p><h1>{section === "overview" ? "Good morning, Admin" : current.label}</h1><span>{sectionCopy[section]}</span></div><a href="/dashboard"><ArrowRight size={15} /> User app</a></div>
-        <div className="admin-preview-warning"><ShieldCheck size={17} /><span>This is a frontend preview with sample figures. No account, wallet, approval, or signal changes are applied.</span></div>
-        {section === "overview" && <div className="admin-metrics">
-          <Metric icon={Users} label="Total users" value="2,481" note="Sample registered accounts" />
-          <Metric icon={ArrowDownLeft} label="Total deposits" value="$184,250" note="Sample ledger volume" />
-          <Metric icon={ArrowUpRight} label="Total withdrawals" value="$62,430" note="Sample ledger volume" />
-          <Metric icon={Signal} label="Active signals" value="8" note="3,120 sample copiers" />
-          <Metric icon={CircleDollarSign} label="Referral payouts" value="$8,940" note="Across sample referral tiers" />
-        </div>}
-        <div className="admin-overview-grid">
-          {section === "overview" && <article className="admin-panel admin-growth"><div className="admin-panel-head"><div><h2>Platform growth</h2><p>Illustrative activity · last 7 days</p></div><button type="button" disabled>7 days <ChevronDown size={14} /></button></div><div className="admin-chart-legend"><span><i />New users</span><span><i />Deposit volume</span></div><div className="admin-chart" aria-label="Illustrative growth chart"><svg viewBox="0 0 700 190" preserveAspectRatio="none"><path className="grid" d="M0 30H700M0 75H700M0 120H700M0 165H700"/><path className="users" d="M0 142 C50 126 55 148 100 119 S150 130 200 96 S260 122 310 91 S375 99 420 68 S490 91 530 52 S610 64 650 28 S675 40 700 18"/><path className="deposits" d="M0 162 C50 155 60 130 100 140 S155 119 200 127 S260 91 310 110 S370 78 420 91 S475 68 530 81 S600 40 650 55 S670 34 700 42"/></svg><div><span>Oct 24</span><span>Oct 25</span><span>Oct 26</span><span>Oct 27</span><span>Oct 28</span><span>Oct 29</span><span>Oct 30</span></div></div></article>}
-          <article className="admin-panel admin-queue"><div className="admin-panel-head"><div><h2>{section === "overview" ? "Needs attention" : `${current.label} activity`}</h2><p>{section === "overview" ? "Sample requests awaiting review" : sectionCopy[section]}</p></div><span className="admin-queue-count">{visibleRecords.length}</span></div>{visibleRecords.length ? visibleRecords.slice(0, 4).map((item, index) => <div className="admin-queue-row" key={`${item.name}-${item.category}`}><span className={`admin-queue-icon type-${index % 3}`}>{item.category === "Deposits" ? <ArrowDownLeft size={16} /> : item.category === "Withdrawals" ? <ArrowUpRight size={16} /> : <UserRound size={16} />}</span><span><strong>{item.name}</strong><small>{item.detail}</small></span><span className="admin-row-value"><b>{item.amount}</b><i className={`status-${item.status.toLowerCase()}`}>{item.status}</i></span></div>) : <div className="admin-empty">No preview records in this section.</div>}</article>
-        </div>
-        <article className="admin-panel admin-records"><div className="admin-panel-head"><div><h2>{section === "overview" ? "Recent transactions" : `${current.label} records`}</h2><p>Searchable sample records</p></div><div className="admin-record-actions"><label><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search records" /></label><button type="button" disabled title="Report export connects with the admin data service"><Download size={15} /> Export</button></div></div><div className="admin-table-wrap"><table><thead><tr><th>Account</th><th>Record</th><th>Amount</th><th>Status</th><th>Updated</th><th /></tr></thead><tbody>{visibleRecords.map((item) => <tr key={`${item.category}-${item.name}`}><td><span className="admin-table-avatar">{item.name.slice(0, 1)}</span><strong>{item.name}</strong></td><td>{item.category}<small>{item.detail}</small></td><td>{item.amount}</td><td><i className={`status-${item.status.toLowerCase()}`}>{item.status}</i></td><td>Today, 10:42</td><td><button type="button" disabled aria-label={`Open ${item.name} record`}>•••</button></td></tr>)}</tbody></table>{!visibleRecords.length && <div className="admin-empty">No matching sample records.</div>}</div></article>
-        <p className="admin-footnote"><Settings2 size={14} /> User management, finance approvals, wallet controls, signal publishing, reports and audit actions need role-based access control, mandatory admin 2FA, and a connected backend before they can affect accounts.</p>
+        <div className="admin-heading"><div><p>PLATFORM MANAGEMENT</p><h1>{current.id === "overview" ? `Welcome, ${actor.fullName.split(" ")[0]}` : current.label}</h1><span>{sectionCopy[current.id]}</span></div><a href="/dashboard"><ArrowRight size={15} /> User app</a></div>
+        {(notice || error) && <p className={`admin-action-notice ${error ? "error" : ""}`} role={error ? "alert" : "status"}>{error || notice}<button type="button" onClick={() => { setError(""); setNotice(""); }} aria-label="Dismiss message"><X size={15} /></button></p>}
+        {current.id === "overview" && <div className="admin-live-overview"><article><span><Users size={18} /></span><small>Registered accounts</small><strong>{can("users.view") ? users.length : "—"}</strong><p>{can("users.view") ? "Live account count" : "User access not assigned"}</p></article><article><span><ShieldCheck size={18} /></span><small>Admin role</small><strong>{actor.isSuperAdmin ? "Super" : "Admin"}</strong><p>{actor.isSuperAdmin ? "Environment configured" : `${actor.permissions.length} enabled sections`}</p></article><article><span><Check size={18} /></span><small>Account access</small><strong>Active</strong><p>Authenticated admin session</p></article></div>}
+        {current.id === "users" && <article className="admin-panel admin-records"><div className="admin-panel-head"><div><h2>Registered users</h2><p>{users.length} accounts · user and admin accounts are protected from unauthorized actions</p></div><div className="admin-record-actions"><label><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name or email" /></label><button type="button" onClick={reload} disabled={busy}><Download size={14} /> Refresh</button></div></div><div className="admin-table-wrap"><table><thead><tr><th>Account</th><th>Role</th><th>Email</th><th>Status</th><th>Withdrawals</th><th>Joined</th><th>Manage</th></tr></thead><tbody>{filteredUsers.map((user) => <tr key={user.id}><td><span className="admin-table-avatar">{user.fullName.slice(0, 1).toUpperCase()}</span><strong>{user.fullName}</strong></td><td>{user.isSuperAdmin ? "Super admin" : user.role}</td><td>{user.email}<small>{user.isEmailVerified ? "Email verified" : "Email unverified"}</small></td><td><i className={user.isDisabled ? "status-review" : "status-active"}>{user.isDisabled ? "Disabled" : "Active"}</i></td><td><i className={user.withdrawalsDisabled ? "status-review" : "status-active"}>{user.withdrawalsDisabled ? "Disabled" : "Enabled"}</i></td><td>{user.createdAt ? new Date(user.createdAt).toLocaleDateString() : "—"}</td><td>{(can("users.manage") || can("withdrawals.manage")) && !user.isSuperAdmin && user.role !== "admin" ? <button className="admin-row-manage" type="button" onClick={() => setSelectedUser(user)}>Manage</button> : <span className="admin-protected-label">Protected</span>}</td></tr>)}</tbody></table>{!filteredUsers.length && <div className="admin-empty">No registered users match your search.</div>}</div></article>}
+        {current.id === "roles" && actor.isSuperAdmin && <>
+          <article className="admin-panel admin-role-create"><div><h2>Administrator accounts</h2><p>Create team admin accounts and assign access to grouped app functions.</p></div><button className="admin-primary-button compact" type="button" onClick={() => { setNewAdminOpen(true); setNewPermissions([]); }}><Users size={15} /> Add administrator</button></article>
+        <article className="admin-panel admin-records"><div className="admin-panel-head"><div><h2>Current administrators</h2><p>Super admin access is controlled through environment credentials.</p></div><div className="admin-record-actions"><label><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search administrators" /></label><button type="button" onClick={reload} disabled={busy}>Refresh</button></div></div><div className="admin-table-wrap"><table><thead><tr><th>Administrator</th><th>Email</th><th>Access groups</th><th>Status</th><th>Created</th><th /></tr></thead><tbody>{filteredAdmins.map((admin) => <tr key={admin.id}><td><span className="admin-table-avatar">{admin.fullName.slice(0, 1).toUpperCase()}</span><strong>{admin.fullName}</strong></td><td>{admin.email}</td><td>{admin.permissions.length} permissions</td><td><i className={admin.disabled ? "status-review" : "status-active"}>{admin.disabled ? "Disabled" : "Active"}</i></td><td>{admin.createdAt ? new Date(admin.createdAt).toLocaleDateString() : "—"}</td><td><button className="admin-row-manage" type="button" onClick={() => { setSelectedAdmin(admin); setNewPermissions(admin.permissions); }}>Manage access</button><button className="admin-inline-action" type="button" disabled={busy} onClick={async () => { if (await action(() => adminRequest(`admins/${admin.id}/status`, "PATCH", { disabled: !admin.disabled }), admin.disabled ? "Admin account enabled." : "Admin account disabled and signed out.")) { if (selectedAdmin?.id === admin.id) setSelectedAdmin({ ...admin, disabled: !admin.disabled }); } }}>{admin.disabled ? "Enable" : "Disable"}</button></td></tr>)}</tbody></table>{!filteredAdmins.length && <div className="admin-empty">No admin accounts found.</div>}</div></article>
+        </>}
+        {current.id === "audit" && <article className="admin-panel admin-records"><div className="admin-panel-head"><div><h2>Admin action history</h2><p>Recent user-account and admin-access changes · latest 250 events</p></div><button type="button" onClick={reload} disabled={busy}><Download size={14} /> Refresh</button></div><div className="admin-table-wrap"><table><thead><tr><th>When</th><th>Administrator</th><th>Action</th><th>Target</th><th>Details</th></tr></thead><tbody>{auditEvents.map((event) => <tr key={event.id}><td>{event.createdAt ? new Date(event.createdAt).toLocaleString() : "—"}</td><td>{event.actorEmail}</td><td>{event.action.replaceAll(".", " ")}</td><td>{event.targetLabel}<small>{event.targetType}</small></td><td>{event.detail}</td></tr>)}</tbody></table>{!auditEvents.length && <div className="admin-empty">No admin actions have been recorded yet.</div>}</div></article>}
+        {!(["overview", "users", "roles", "audit"].includes(current.id)) && <article className="admin-panel admin-module-empty"><span>{current.id === "deposits" ? <ArrowDownLeft /> : current.id === "withdrawals" ? <ArrowUpRight /> : current.id === "wallets" ? <Wallet /> : current.id === "signals" ? <Signal /> : current.id === "referrals" ? <UserRound /> : <BarChart3 />}</span><h2>{current.label}</h2><p>{sectionPlaceholder[current.id] ?? "This module is not connected yet."}</p></article>}
+        {current.id === "overview" && <><article className="admin-panel admin-overview-note"><h2>Manage by access group</h2><p>Use Admin access to create administrator accounts and enable only the platform areas each person needs. Access checks are enforced by the backend on every admin request.</p>{permissionGroups.map((group) => <div key={group.id}><strong>{group.label}</strong><span>{group.permissions.map((permission) => permission.label).join(" · ")}</span></div>)}</article></>}
       </section>
     </main>
+
+    {selectedUser && (can("users.manage") || can("withdrawals.manage")) && <div className="admin-modal-layer" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedUser(null); }}><section className="admin-modal-card" key={selectedUser.id} role="dialog" aria-modal="true" aria-labelledby="user-modal-title"><header><div><p>USER ACCOUNT</p><h2 id="user-modal-title">Manage {selectedUser.fullName}</h2></div><button type="button" onClick={() => setSelectedUser(null)} aria-label="Close"><X /></button></header>{can("users.manage") && <><form className="admin-modal-form" onSubmit={updateUserProfile}><label>Full name<input name="fullName" defaultValue={selectedUser.fullName} required minLength={2} maxLength={120} /></label><label>Email<input name="email" type="email" defaultValue={selectedUser.email} required /></label><button className="admin-primary-button" disabled={busy}>Save account details</button></form><form className="admin-modal-form admin-password-form" onSubmit={updateUserPassword}><label>Set a new password<input name="password" type="password" placeholder="12+ characters, uppercase, number, symbol" required minLength={12} maxLength={128} /></label><button className="admin-outline-button" disabled={busy}>Change password</button></form><div className="admin-control-row"><div><strong>Account access</strong><span>{selectedUser.isDisabled ? "Sign-in disabled" : "Sign-in enabled"}</span></div><button type="button" className="admin-outline-button" disabled={busy} onClick={async () => { if (await action(() => adminRequest(`users/${selectedUser.id}/controls`, "PATCH", { disabled: !selectedUser.isDisabled }), selectedUser.isDisabled ? "Account enabled." : "Account disabled and signed out.")) setSelectedUser({ ...selectedUser, isDisabled: !selectedUser.isDisabled }); }}>{selectedUser.isDisabled ? "Enable account" : "Disable account"}</button></div><button type="button" className="admin-danger-button" disabled={busy} onClick={async () => { if (window.confirm(`Permanently delete ${selectedUser.fullName} and revoke their sessions? This cannot be undone.`) && await action(() => adminRequest(`users/${selectedUser.id}`, "DELETE"), "User account deleted.")) setSelectedUser(null); }}>Delete user account</button></>}{can("withdrawals.manage") && <div className="admin-control-row"><div><strong>Withdrawals</strong><span>{selectedUser.withdrawalsDisabled ? "Withdrawals disabled" : "Withdrawals enabled"}</span></div><button type="button" className="admin-outline-button" disabled={busy} onClick={async () => { if (await action(() => adminRequest(`users/${selectedUser.id}/withdrawals`, "PATCH", { withdrawalsDisabled: !selectedUser.withdrawalsDisabled }), selectedUser.withdrawalsDisabled ? "Withdrawals enabled." : "Withdrawals disabled.")) setSelectedUser({ ...selectedUser, withdrawalsDisabled: !selectedUser.withdrawalsDisabled }); }}>{selectedUser.withdrawalsDisabled ? "Enable withdrawals" : "Disable withdrawals"}</button></div>}</section></div>}
+
+    {(newAdminOpen || selectedAdmin) && actor.isSuperAdmin && <div className="admin-modal-layer" onMouseDown={(event) => { if (event.target === event.currentTarget) { setNewAdminOpen(false); setSelectedAdmin(null); } }}><section className="admin-modal-card admin-access-modal" role="dialog" aria-modal="true" aria-labelledby="admin-modal-title"><header><div><p>ADMIN ACCESS</p><h2 id="admin-modal-title">{selectedAdmin ? `Access for ${selectedAdmin.fullName}` : "Create admin account"}</h2></div><button type="button" onClick={() => { setNewAdminOpen(false); setSelectedAdmin(null); }} aria-label="Close"><X /></button></header>{newAdminOpen && <form className="admin-modal-form" id="create-admin-form" onSubmit={createAdmin}><label>Full name<input name="fullName" required minLength={2} maxLength={120} /></label><label>Email<input name="email" type="email" required /></label><label>Temporary password<input name="password" type="password" required minLength={12} maxLength={128} placeholder="12+ characters, uppercase, number, symbol" /></label><p className="admin-access-hint">Share the temporary password securely. Admins can use the password reset flow to change it.</p></form>}<div className="admin-permission-groups">{permissionGroups.map((group) => <fieldset key={group.id}><legend>{group.label}</legend><p>{group.description}</p>{group.permissions.map((permission) => <label key={permission.code}><input type="checkbox" checked={group.id === "administrators" || newPermissions.includes(permission.code)} disabled={group.id === "administrators"} onChange={() => setPermission(permission.code)} /><span><strong>{permission.label}</strong><small>{group.id === "administrators" ? "Reserved for super admin" : permission.code}</small></span></label>)}</fieldset>)}</div><footer>{selectedAdmin && <button type="button" className="admin-outline-button" onClick={async () => { if (await action(() => adminRequest(`admins/${selectedAdmin.id}/status`, "PATCH", { disabled: !selectedAdmin.disabled }), selectedAdmin.disabled ? "Admin account enabled." : "Admin account disabled and signed out.")) setSelectedAdmin({ ...selectedAdmin, disabled: !selectedAdmin.disabled }); }}>{selectedAdmin.disabled ? "Enable account" : "Disable account"}</button>}<button type="button" className="admin-outline-button" onClick={() => { setNewAdminOpen(false); setSelectedAdmin(null); }}>Cancel</button><button type={selectedAdmin ? "button" : "submit"} form={selectedAdmin ? undefined : "create-admin-form"} className="admin-primary-button" disabled={busy} onClick={selectedAdmin ? () => void saveAdminPermissions() : undefined}>{selectedAdmin ? "Save access" : "Create administrator"}</button></footer></section></div>}
   </div>;
 }

@@ -95,6 +95,7 @@ export class AuthService {
   async signin(emailInput: string, password: string) {
     const user = await this.users.findByEmail(emailInput.trim().toLowerCase(), true);
     if (!user || !(await argon2.verify(user.passwordHash, password))) throw new UnauthorizedException('Invalid email or password.');
+    if (user.isDisabled) throw new ForbiddenException('This account is disabled. Contact support.');
     if (!user.isEmailVerified) throw new ForbiddenException('Verify your email before signing in.');
     const session = await this.sessions.create(String(user._id));
     return { user: this.users.safe(user), session };
