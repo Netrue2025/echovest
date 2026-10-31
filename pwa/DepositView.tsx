@@ -1,8 +1,8 @@
 "use client";
 
-import { ArrowLeft, Bell, Check, Clipboard, Info, LoaderCircle, Wallet } from "lucide-react";
+import { ArrowLeft, Bell, Check, Clipboard, Info, LoaderCircle, Wallet, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { financeRequest, FinanceSettings, FinanceSummary } from "../lib/finance-api";
+import { financeRequest, financeStatusLabel, financeStatusTone, FinanceSettings, FinanceSummary } from "../lib/finance-api";
 
 const money = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 8 });
 
@@ -17,6 +17,11 @@ export function DepositView() {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     Promise.all([financeRequest<FinanceSettings>("settings"), financeRequest<FinanceSummary>("me")]).then(([config, account]) => { setSettings(config); setSummary(account); }).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load your deposit details."));
+  }, []);
+  useEffect(() => {
+    const refresh = () => financeRequest<FinanceSummary>("me").then(setSummary).catch(() => undefined);
+    const timer = window.setInterval(refresh, 15000);
+    return () => window.clearInterval(timer);
   }, []);
   const value = Number(amount);
   const valid = Number.isFinite(value) && value >= (settings?.minimumDeposit ?? 0) && value > 0 && Boolean(txid.trim());
@@ -35,6 +40,12 @@ export function DepositView() {
     try { await navigator.clipboard.writeText(settings.depositWalletAddress); setCopied(true); window.setTimeout(() => setCopied(false), 1600); } catch { setError("Could not access clipboard. Select and copy the wallet address."); }
   }
   const history = summary?.transactions.filter((item) => item.type === "deposit") ?? [];
+  const latest = history[0];
+  const state = latest?.status ?? "new";
+  const rejected = state === "rejected";
+  const completed = state === "approved";
+  const stepOne = state !== "new";
+  const stepTwo = state === "network_confirmation" || completed || rejected;
 
   return <section className="dash-deposit-page">
     <a className="dash-deposit-back" href="/dashboard?view=wallet"><ArrowLeft size={17} /> Back to wallet</a>
@@ -55,7 +66,7 @@ export function DepositView() {
         {error && <p className="dash-deposit-error" role="alert">{error}</p>}{notice && <p className="dash-deposit-next-hint" role="status">{notice}</p>}
         <button className="dash-deposit-submit" type="submit" disabled={!valid || busy || !settings?.depositWalletAddress}>{busy ? <><LoaderCircle size={17} className="admin-loading-orbit" /> Submitting…</> : "Submit for network confirmation"}</button>
       </form>
-      <article className="dash-panel dash-deposit-panel"><div className="dash-panel-heading"><div><h2>Your deposit requests</h2><p>Only approved requests are credited.</p></div></div>{history.length ? history.map((item) => <div className="dash-activity-row" key={item.id}><span className="dash-activity-icon in"><ArrowLeft size={17} /></span><span className="dash-activity-main"><b>{money.format(item.amount)} USDT deposit</b><small>{item.network} · {item.txid || "TXID pending"}</small></span><span className="dash-activity-amount"><b>{item.status.replaceAll("_", " ")}</b><small>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : ""}</small></span></div>) : <p className="dash-deposit-helper">No deposit requests yet.</p>}</article>
-    </div><aside className="dash-panel dash-deposit-status"><span className="dash-overline">DEPOSIT STATUS</span><h2>What happens next?</h2><div className="dash-deposit-timeline"><div className="current"><i><Check size={13} /></i><span><strong>Submit transfer</strong><small>Send using the configured wallet and network.</small></span></div><div><i>2</i><span><strong>Network confirmation</strong><small>An admin checks your transfer and TXID.</small></span></div><div><i>3</i><span><strong>Approved and credited</strong><small>Your trading balance updates after approval.</small></span></div></div></aside></div>
+      <article className="dash-panel dash-deposit-panel"><div className="dash-panel-heading"><div><h2>Your deposit requests</h2><p>Only approved requests are credited.</p></div></div>{history.length ? history.map((item) => <div className="dash-activity-row" key={item.id}><span className="dash-activity-icon in"><ArrowLeft size={17} /></span><span className="dash-activity-main"><b>{money.format(item.amount)} USDT deposit</b><small>{item.network} · {item.txid || "TXID pending"}</small></span><span className="dash-activity-amount"><b className={`dash-status-label ${financeStatusTone(item.status)}`}>{financeStatusLabel(item.status)}</b><small>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : ""}</small></span></div>) : <p className="dash-deposit-helper">No deposit requests yet.</p>}</article>
+    </div><aside className="dash-panel dash-deposit-status"><span className="dash-overline">DEPOSIT STATUS</span><h2>{latest ? "Latest request progress" : "What happens next?"}</h2><div className="dash-deposit-timeline"><div className={stepOne ? "completed" : "current"}><i>{stepOne ? <Check size={13} /> : "1"}</i><span><strong>Submit transfer</strong><small>Send using the configured wallet and network.</small></span></div><div className={`${stepTwo ? "completed" : ""} ${state === "network_confirmation" ? "current" : ""}`}><i>{stepTwo ? <Check size={13} /> : "2"}</i><span><strong>Network confirmation</strong><small>{state === "network_confirmation" ? "An admin is checking your transfer and TXID." : "An admin checks your transfer and TXID."}</small></span></div><div className={`${completed ? "completed" : ""} ${rejected ? "failed" : completed ? "current" : ""}`}><i>{rejected ? <X size={13} /> : completed ? <Check size={13} /> : "3"}</i><span><strong>{rejected ? "Deposit rejected" : "Approved and credited"}</strong><small>{rejected ? latest?.rejectionReason || "This request was rejected. Review the request details or contact support." : completed ? "Your trading balance has been credited." : "Your trading balance updates after approval."}</small></span></div></div></aside></div>
   </section>;
 }

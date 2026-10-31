@@ -1,8 +1,8 @@
 "use client";
 
-import { ArrowLeft, Bell, Check, Clipboard, Info, LoaderCircle, Wallet } from "lucide-react";
+import { ArrowLeft, Bell, Check, Clipboard, Info, LoaderCircle, Wallet, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { financeRequest, FinanceSettings, FinanceSummary } from "../lib/finance-api";
+import { financeRequest, financeStatusLabel, financeStatusTone, FinanceSettings, FinanceSummary } from "../lib/finance-api";
 
 const money = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 8 });
 
@@ -17,10 +17,17 @@ export function WithdrawalView() {
   const [notice, setNotice] = useState("");
   const [pasteMessage, setPasteMessage] = useState("");
   useEffect(() => { Promise.all([financeRequest<FinanceSummary>("me"), financeRequest<FinanceSettings>("settings")]).then(([account, config]) => { setSummary(account); setSettings(config); }).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load withdrawal details.")); }, []);
+  useEffect(() => { const refresh = () => financeRequest<FinanceSummary>("me").then(setSummary).catch(() => undefined); const timer = window.setInterval(refresh, 15000); return () => window.clearInterval(timer); }, []);
   const available = wallet === "trading" ? summary?.balances.availableTrading ?? 0 : summary?.balances.availableReferral ?? 0;
   const numericAmount = Number(amount);
   const validAmount = Number.isFinite(numericAmount) && numericAmount >= (settings?.minimumWithdrawal ?? 0) && numericAmount > 0 && numericAmount <= available;
   const history = useMemo(() => summary?.transactions.filter((item) => item.type === "withdrawal") ?? [], [summary]);
+  const latest = history[0];
+  const state = latest?.status ?? "new";
+  const stepOne = state !== "new";
+  const stepTwo = state === "pending_review" || state === "approved" || state === "rejected";
+  const rejected = state === "rejected";
+  const approved = state === "approved";
   async function pasteAddress() {
     setPasteMessage("");
     try { const value = await navigator.clipboard.readText(); if (value) setAddress(value.trim()); else setPasteMessage("Your clipboard is empty."); }
@@ -52,7 +59,7 @@ export function WithdrawalView() {
         {error && <p className="dash-deposit-error" role="alert">{error}</p>}{notice && <p className="dash-deposit-next-hint" role="status">{notice}</p>}
         <button className="dash-withdraw-review-button" type="submit" disabled={!validAmount || !address.trim() || !settings?.depositNetwork || busy}>{busy ? <><LoaderCircle size={17} /> Submitting…</> : "Submit withdrawal request"}</button>
       </form>
-      <article className="dash-panel dash-withdraw-panel"><div className="dash-panel-heading"><div><h2>Your withdrawal requests</h2><p>Approved withdrawals are deducted from the selected balance.</p></div></div>{history.length ? history.map((item) => <div className="dash-activity-row" key={item.id}><span className="dash-activity-icon out"><ArrowLeft size={17} /></span><span className="dash-activity-main"><b>{money.format(item.amount)} USDT withdrawal</b><small>{item.balanceType} balance · {item.network}</small></span><span className="dash-activity-amount"><b>{item.status.replaceAll("_", " ")}</b><small>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : ""}</small></span></div>) : <p className="dash-deposit-helper">No withdrawal requests yet.</p>}</article>
-    </div><aside className="dash-panel dash-deposit-status"><span className="dash-overline">WITHDRAWAL STATUS</span><h2>Request steps</h2><div className="dash-deposit-timeline"><div className="current"><i><Check size={13} /></i><span><strong>Submit details</strong><small>Verify the wallet and chosen balance.</small></span></div><div><i>2</i><span><strong>Admin review</strong><small>Funds remain reserved during review.</small></span></div><div><i>3</i><span><strong>Approved or rejected</strong><small>Approval debits funds; rejection releases them.</small></span></div></div></aside></div>
+      <article className="dash-panel dash-withdraw-panel"><div className="dash-panel-heading"><div><h2>Your withdrawal requests</h2><p>Approved withdrawals are deducted from the selected balance.</p></div></div>{history.length ? history.map((item) => <div className="dash-activity-row" key={item.id}><span className="dash-activity-icon out"><ArrowLeft size={17} /></span><span className="dash-activity-main"><b>{money.format(item.amount)} USDT withdrawal</b><small>{item.balanceType} balance · {item.network}</small></span><span className="dash-activity-amount"><b className={`dash-status-label ${financeStatusTone(item.status)}`}>{financeStatusLabel(item.status)}</b><small>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : ""}</small></span></div>) : <p className="dash-deposit-helper">No withdrawal requests yet.</p>}</article>
+    </div><aside className="dash-panel dash-deposit-status"><span className="dash-overline">WITHDRAWAL STATUS</span><h2>{latest ? "Latest request progress" : "Request steps"}</h2><div className="dash-deposit-timeline"><div className={stepOne ? "completed" : "current"}><i>{stepOne ? <Check size={13} /> : "1"}</i><span><strong>Submit details</strong><small>Verify the wallet and chosen balance.</small></span></div><div className={`${stepTwo ? "completed" : ""} ${state === "pending_review" ? "current" : ""}`}><i>{stepTwo ? <Check size={13} /> : "2"}</i><span><strong>Admin review</strong><small>{state === "pending_review" ? "Your request is being reviewed." : "Funds remain reserved during review."}</small></span></div><div className={`${approved ? "completed current" : ""} ${rejected ? "failed" : ""}`}><i>{rejected ? <X size={13} /> : approved ? <Check size={13} /> : "3"}</i><span><strong>{rejected ? "Withdrawal rejected" : approved ? "Withdrawal approved" : "Approved or rejected"}</strong><small>{rejected ? latest?.rejectionReason || "Reserved funds have been released." : approved ? "Your selected balance has been debited." : "Approval debits funds; rejection releases them."}</small></span></div></div></aside></div>
   </section>;
 }

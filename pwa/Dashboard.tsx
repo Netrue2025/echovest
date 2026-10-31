@@ -13,7 +13,7 @@ import { WithdrawalView } from "./WithdrawalView";
 import { authRequest, AuthUser } from "../lib/auth-api";
 import { AppPreloader } from "../components/AppPreloader";
 import loadingStyles from "../components/AppPreloader.module.css";
-import { financeRequest, FinanceSummary, FinanceTransaction } from "../lib/finance-api";
+import { financeRequest, financeStatusLabel, financeStatusTone, FinanceSummary, FinanceTransaction } from "../lib/finance-api";
 
 const navItems = [
   { id: "overview", label: "Overview", icon: Home },
@@ -26,8 +26,12 @@ const navItems = [
 const formatView = (id: string) => navItems.find((item) => item.id === id)?.label ?? (id === "help" ? "Help & support" : id === "notifications" ? "Notifications" : id === "deposit" ? "Deposit" : id === "withdraw" ? "Withdraw" : "Settings");
 const validViews = new Set([...navItems.map(({ id }) => id), "settings", "help", "deposit", "withdraw", "notifications"]);
 const normalizeView = (value: string | null | undefined) => value && validViews.has(value) ? value : "overview";
-const money = (amount: number) => `${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 8 })} USDT`;
+const money = (amount: number) => `${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 8 })} USD`;
 const emptyFinance: FinanceSummary = { balances: { trading: 0, referral: 0, availableTrading: 0, availableReferral: 0 }, transactions: [] };
+
+function BalanceAmount({ amount }: { amount: number }) {
+  return <>{amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 8 })}<small className="dash-currency-unit">USD</small></>;
+}
 
 function Brand() {
   return <a href="/pwa" className="dash-brand" aria-label="EchoVest home"><span className="brand-icon-crop"><img src="/echovest-icon.png" alt="" /></span><span>EchoVest</span></a>;
@@ -52,7 +56,7 @@ function ActivityList({ transactions = [] }: { transactions?: FinanceTransaction
   return <div className="dash-activity-list">{transactions.map((item) => <div className="dash-activity-row" key={item.id}>
     <span className={`dash-activity-icon ${item.type === "deposit" ? "in" : "out"}`} aria-hidden="true">{item.type === "deposit" ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />}</span>
     <span className="dash-activity-main"><b>{item.type === "deposit" ? "Deposit" : "Withdrawal"}</b><small>{item.network} - {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : ""}</small></span>
-    <span className="dash-activity-amount"><b className={item.type === "deposit" ? "in" : "out"}>{item.type === "deposit" ? "+" : "-"}{money(item.amount)}</b><small>{item.status.replaceAll("_", " ")}</small></span>
+    <span className="dash-activity-amount"><b className={item.type === "deposit" ? "in" : "out"}>{item.type === "deposit" ? "+" : "-"}{money(item.amount)}</b><small className={`dash-status-label ${financeStatusTone(item.status)}`}>{financeStatusLabel(item.status)}</small></span>
   </div>)}</div>;
 }
 
@@ -62,14 +66,14 @@ function Overview({ email, name, finance }: { email: string; name: string; finan
     <div className="dash-desktop-overview">
     <PageHeading title="Your overview" subtitle="A quick look at your wallet and trading activity." />
     <section className="dash-stat-grid" aria-label="Account summary">
-      <article className="dash-balance-card"><div className="dash-balance-top"><span>Total wallet balance</span><Wallet size={19} /></div><strong>{money(finance.balances.availableTrading + finance.balances.availableReferral)}</strong><p><span className="dash-sample-dot" /> Available balance</p><div className="dash-balance-footer"><span>Investment {money(finance.balances.availableTrading)}</span><span>Referral {money(finance.balances.availableReferral)}</span></div></article>
+      <article className="dash-balance-card"><div className="dash-balance-top"><span>Total wallet balance</span><Wallet size={19} /></div><strong><BalanceAmount amount={finance.balances.availableTrading + finance.balances.availableReferral} /></strong><p><span className="dash-sample-dot" /> Available balance</p><div className="dash-balance-footer"><span>Investment {money(finance.balances.availableTrading)}</span><span>Referral {money(finance.balances.availableReferral)}</span></div></article>
       <article className="dash-stat-card"><span className="dash-stat-icon teal"><Users size={19} /></span><small>Referral earnings</small><strong>{money(finance.balances.availableReferral)}</strong><span className="dash-stat-caption">Held in a separate balance</span><a href="/dashboard?view=referrals">View referrals <ArrowRight size={14} /></a></article>
       <article className="dash-stat-card"><span className="dash-stat-icon blue"><Zap size={19} /></span><small>Copying now</small><strong>0 <em>strategies</em></strong><span className="dash-stat-caption">No active strategy allocations</span><a href="/dashboard?view=trading">View strategies <ArrowRight size={14} /></a></article>
       <article className="dash-stat-card"><span className="dash-stat-icon violet"><Award size={19} /></span><small>Membership level</small><strong>Blue</strong><span className="dash-stat-caption">Your current level</span><a href="/dashboard?view=levels">View level <ArrowRight size={14} /></a></article>
     </section>
 
     <section className="dash-content-grid">
-      <article className="dash-panel dash-activity-panel"><div className="dash-panel-heading"><div><h2>Recent activity</h2><p>Latest wallet updates</p></div><a href="/dashboard?view=transactions">All activity <ArrowRight size={15} /></a></div><ActivityList transactions={finance.transactions.slice(0, 4)} /></article>
+      <article className="dash-panel dash-activity-panel"><div className="dash-panel-heading"><div><h2>Recent activity</h2><p>Latest wallet updates</p></div><a href="/dashboard?view=transactions">All activity <ArrowRight size={15} /></a></div><ActivityList transactions={finance.transactions.slice(0, 3)} /></article>
       <article className="dash-panel dash-signals-panel"><div className="dash-panel-heading"><div><h2>Copy trading</h2><p>Your active strategies</p></div><span className="dash-soft-count">0 active</span></div>
         <p className="dash-deposit-helper">No active copy-trading strategies.</p>
         <a className="dash-panel-link" href="/dashboard?view=trading">Manage strategies <ArrowRight size={15} /></a>
@@ -86,7 +90,7 @@ function MobileHome({ email, name, finance }: { email: string; name: string; fin
     <header className="dash-mobile-greeting"><div><p>Hello, <strong>{firstName}</strong> <span aria-hidden="true">👋</span></p><small>Welcome back!</small></div><div className="dash-mobile-greeting-actions"><a href="/dashboard?view=levels" className="dash-mobile-level"><Award size={14} /> Blue</a><a href="/dashboard?view=notifications" className="dash-mobile-notification" aria-label="Open notifications"><Bell size={22} /><i /></a></div></header>
     <article className="dash-mobile-balance">
       <div className="dash-mobile-balance-head"><span>Main wallet</span><Wallet size={19} /></div>
-      <strong>{money(finance.balances.availableTrading)}</strong>
+      <strong><BalanceAmount amount={finance.balances.availableTrading} /></strong>
       <div className="dash-mobile-balance-actions"><a href="/dashboard?view=deposit"><Plus size={16} /> Deposit</a><a href="/dashboard?view=withdraw"><ArrowUpRight size={16} /> Withdraw</a></div>
     </article>
     <div className="dash-mobile-summary">
@@ -99,7 +103,7 @@ function MobileHome({ email, name, finance }: { email: string; name: string; fin
       <a href="/dashboard?view=referrals"><span><Users size={19} /></span>Referral</a>
     </nav>
     <BtcMarketChart />
-    <article className="dash-mobile-activity"><div><h2>Recent activity</h2><a href="/dashboard?view=transactions">See all <ArrowRight size={14} /></a></div>{finance.transactions[0] ? <div className="dash-mobile-activity-row"><span className="dash-mobile-activity-icon"><ArrowDownLeft size={17} /></span><span><b>{finance.transactions[0].type === "deposit" ? "Deposit" : "Withdrawal"}</b><small>{finance.transactions[0].status.replaceAll("_", " ")}</small></span><strong>{money(finance.transactions[0].amount)}</strong></div> : <p className="dash-deposit-helper">No transactions yet.</p>}</article>
+    <article className="dash-mobile-activity"><div><h2>Recent activity</h2><a href="/dashboard?view=transactions">See all <ArrowRight size={14} /></a></div>{finance.transactions.length ? finance.transactions.slice(0, 3).map((item) => <div className="dash-mobile-activity-row" key={item.id}><span className={`dash-mobile-activity-icon ${item.type === "withdrawal" ? "out" : "in"}`}>{item.type === "deposit" ? <ArrowDownLeft size={17} /> : <ArrowUpRight size={17} />}</span><span><b>{item.type === "deposit" ? "Deposit" : "Withdrawal"}</b><small className={`dash-status-label ${financeStatusTone(item.status)}`}>{financeStatusLabel(item.status)}</small></span><strong className={item.type === "deposit" ? "in" : "out"}>{item.type === "deposit" ? "+" : "-"}{money(item.amount)}</strong></div>) : <p className="dash-deposit-helper">No transactions yet.</p>}</article>
     <p className="dash-mobile-disclosure">Account balances update after approved transactions.</p>
   </section>;
 }

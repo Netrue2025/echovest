@@ -430,3 +430,23 @@ body{overflow-x:hidden}@media(max-width:900px){.grid-lines>.container{grid-templ
   .dash-mobile-balance-head,.dash-mobile-balance>strong,.dash-mobile-balance-actions{position:relative;z-index:1}
 }
 .dash-deposit-panel .dash-panel-heading{margin-bottom:12px}.dash-deposit-panel .dash-panel-heading h2{margin:0;color:#20262C;font-size:15px}.dash-deposit-panel .dash-panel-heading p{margin:4px 0 0;color:#808A91;font-size:11px}.dash-deposit-panel .dash-activity-row,.dash-withdraw-panel .dash-activity-row{padding:12px 0;border-top:1px solid #EEF0F1}.dash-deposit-panel .dash-activity-amount b,.dash-withdraw-panel .dash-activity-amount b{font-size:10px;text-transform:capitalize}.dash-deposit-submit:disabled,.dash-withdraw-review-button:disabled{opacity:.55;cursor:not-allowed}.dash-deposit-error{margin:10px 0;color:#B13F35;font-size:12px}.dash-deposit-next-hint{margin:10px 0;padding:10px 12px;border-radius:9px;background:#F0FAF4;color:#287450;font-size:12px;line-height:1.5}.admin-loading-orbit{animation:adminFinanceSpin .9s linear infinite}@keyframes adminFinanceSpin{to{transform:rotate(360deg)}}
+
+/* Finance request states and compact balance currency */
+.dash-currency-unit{display:inline-block;margin-left:6px;color:#D6DEE8;font-size:.43em;font-weight:650;letter-spacing:0;vertical-align:baseline}
+.dash-status-label{display:inline-flex!important;width:max-content;max-width:100%;align-items:center;padding:4px 8px;border-radius:999px;font-size:10px!important;font-weight:700!important;line-height:1.25;text-transform:capitalize!important;white-space:nowrap}
+.dash-status-label.review{background:#FFF2DF;color:#A95B00}
+.dash-status-label.approved{background:#E7F7EF;color:#168253}
+.dash-status-label.rejected{background:#FDECEC;color:#BD3434}
+.dash-status-label.neutral{background:#EFF2F5;color:#637080}
+.dash-activity-amount>.dash-status-label{margin-top:3px}
+.dash-mobile-activity-row .dash-status-label{font-size:9px!important}
+.dash-mobile-activity-icon.out{background:#FFF0EE;color:#C24A3C}
+.dash-deposit-submit:not(:disabled){background:#F0B90B;color:#20262C;cursor:pointer;box-shadow:0 5px 13px #F0B90B38;transition:background .16s,transform .16s,box-shadow .16s}
+.dash-deposit-submit:not(:disabled):hover{background:#DFA900;box-shadow:0 7px 17px #F0B90B45;transform:translateY(-1px)}
+.dash-deposit-submit:focus-visible{outline:3px solid #F0B90B55;outline-offset:2px}
+.dash-deposit-timeline>div.completed>i{border-color:#159B68;background:#159B68;color:#fff}
+.dash-deposit-timeline>div.completed:not(:last-child):before{background:#75C8A4}
+.dash-deposit-timeline>div.current:not(.completed)>i{border-color:#F0B90B;background:#FFF5D6;color:#956F00}
+.dash-deposit-timeline>div.failed>i{border-color:#D64B4B;background:#D64B4B;color:#fff}
+.dash-deposit-timeline>div.failed strong{color:#B93838}
+.dash-deposit-timeline>div.failed:not(:last-child):before{background:#E8A0A0}

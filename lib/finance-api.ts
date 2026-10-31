@@ -15,6 +15,19 @@ export async function financeRequest<T>(path: string, method = 'GET', payload?: 
   return data as T;
 }
 
+export function financeStatusTone(status: string): 'review' | 'approved' | 'rejected' | 'neutral' {
+  if (status === 'approved') return 'approved';
+  if (status === 'rejected') return 'rejected';
+  if (status === 'network_confirmation' || status === 'pending_review') return 'review';
+  return 'neutral';
+}
+
+export function financeStatusLabel(status: string): string {
+  if (status === 'network_confirmation') return 'Under review';
+  if (status === 'pending_review') return 'Under review';
+  return status.replaceAll('_', ' ');
+}
+
 export type FinanceSettings = { depositWalletAddress: string; depositNetwork: string; depositInstructions: string; minimumDeposit: number; minimumWithdrawal: number };
 export type FinanceTransaction = { id: string; type: 'deposit' | 'withdrawal'; amount: number; balanceType: 'trading' | 'referral'; status: string; txid: string; network: string; destinationAddress: string; rejectionReason: string; createdAt?: string };
 export type FinanceSummary = { balances: { trading: number; referral: number; availableTrading: number; availableReferral: number }; transactions: FinanceTransaction[] };
