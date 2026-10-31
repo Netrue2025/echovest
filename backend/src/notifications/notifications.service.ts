@@ -1,7 +1,9 @@
 import { Injectable, Logger, NotFoundException, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
-import * as webpush from 'web-push';
+// web-push is CommonJS. In Node ESM its callable API is the default export;
+// importing the namespace leaves methods such as setVapidDetails undefined.
+import webpush from 'web-push';
 import { Model, Types } from 'mongoose';
 import { User } from '../users/user.schema.js';
 import { BroadcastNotificationDto, PushSubscriptionDto } from './notifications.dto.js';
