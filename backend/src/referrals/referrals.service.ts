@@ -97,6 +97,14 @@ export class ReferralsService {
   }
 
   async accrueDeposit(sourceUserId: string, sourceId: string, sourceAmount: number, session: ClientSession): Promise<CreditedReferral[]> {
+    return this.accrueEarnings(sourceUserId, sourceId, sourceAmount, session, 'deposit');
+  }
+
+  async accrueTrading(sourceUserId: string, sourceId: string, sourceAmount: number, session: ClientSession): Promise<CreditedReferral[]> {
+    return this.accrueEarnings(sourceUserId, sourceId, sourceAmount, session, 'trading');
+  }
+
+  private async accrueEarnings(sourceUserId: string, sourceId: string, sourceAmount: number, session: ClientSession, sourceType: 'deposit' | 'trading'): Promise<CreditedReferral[]> {
     const settings = await this.config();
     const rates = settings?.rates ?? DEFAULT_REFERRAL_RATES;
     let source = await this.users.findById(sourceUserId).select('referredBy').session(session).lean().exec();
@@ -110,10 +118,10 @@ export class ReferralsService {
       const rate = row?.[`tier${tier}` as 'tier1' | 'tier2' | 'tier3'] ?? 0;
       const amount = Math.floor((sourceAmount * rate / 100) * 1e8) / 1e8;
       if (!referrer.isDisabled && rate > 0 && amount >= 0.00000001) {
-        await this.earnings.create([{ referrerId, downlineUserId: new Types.ObjectId(sourceUserId), sourceType: 'deposit', sourceId, tier, membershipLevel: level, rate, sourceAmount, amount }], { session });
+        await this.earnings.create([{ referrerId, downlineUserId: new Types.ObjectId(sourceUserId), sourceType, sourceId, tier, membershipLevel: level, rate, sourceAmount, amount }], { session });
         const updated = await this.users.updateOne({ _id: referrerId, role: 'user', isDisabled: { $ne: true } }, { $inc: { referralBalance: amount } }, { session }).exec();
         if (!updated.matchedCount) throw new NotFoundException('Referral account is unavailable.');
-        await this.audit.create([{ actorId: 'system', actorEmail: 'system', action: 'referrals.commission.credited', targetType: 'user', targetId: String(referrerId), targetLabel: String(referrerId), detail: `${amount} USD tier ${tier} deposit commission from approved deposit ${sourceId}.` }], { session });
+        await this.audit.create([{ actorId: 'system', actorEmail: 'system', action: 'referrals.commission.credited', targetType: 'user', targetId: String(referrerId), targetLabel: String(referrerId), detail: `${amount} USD tier ${tier} ${sourceType} commission from ${sourceType} earnings ${sourceId}.` }], { session });
         credited.push({ userId: String(referrerId), amount, tier });
       }
       source = referrer;

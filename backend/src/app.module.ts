@@ -12,6 +12,7 @@ import { AdminModule } from './admin/admin.module.js';
 import { FinanceModule } from './finance/finance.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { ReferralsModule } from './referrals/referrals.module.js';
+import { TradesModule } from './trades/trades.module.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -39,6 +40,7 @@ function validateEnvironment(config: Record<string, unknown>) {
     FinanceModule,
     NotificationsModule,
     ReferralsModule,
+    TradesModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: RateLimitGuard }],
 })

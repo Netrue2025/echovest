@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  ArrowDownLeft, ArrowRight, ArrowUpRight, Award, Check, ChevronDown, Copy,
+  ArrowDownLeft, ArrowRight, ArrowUpRight, Award, Check, ChevronDown, Clock3, Copy,
   CircleHelp, Crown, Gem, Home, LogOut, Medal, Menu, ReceiptText, Settings, ShieldCheck,
   Sparkles, Users, Wallet, X, Zap, User, Plus, Link2, Share2, UserPlus, Coins,
 } from "lucide-react";
@@ -16,6 +16,7 @@ import loadingStyles from "../components/AppPreloader.module.css";
 import { financeRequest, financeStatusLabel, financeStatusTone, FinanceSummary, FinanceTransaction } from "../lib/finance-api";
 import { NotificationBell, NotificationProvider, NotificationsPage } from "./NotificationCenter";
 import { referralRequest, ReferralOverview } from "../lib/referral-api";
+import { CopyTradeSignal, TradeDashboard, TradePosition, tradeRequest } from "../lib/trading-api";
 
 const navItems = [
   { id: "overview", label: "Overview", icon: Home },
@@ -114,8 +115,56 @@ function WalletView({ finance }: { finance: FinanceSummary }) {
   return <><PageHeading title="Wallet" subtitle="Review your balances and recent wallet activity." /><div className="dash-subview-stats"><article className="dash-panel"><span className="dash-overline">INVESTMENT BALANCE</span><strong className="dash-large-value">{money(finance.balances.availableTrading)}</strong><p>Deposits are credited after admin approval</p><div className="dash-wallet-actions"><a className="dash-outline-button" href="/dashboard?view=deposit">Deposit funds <ArrowRight size={15} /></a><a className="dash-outline-button" href="/dashboard?view=withdraw">Withdraw funds <ArrowRight size={15} /></a></div></article><article className="dash-panel"><span className="dash-overline">REFERRAL BALANCE</span><strong className="dash-large-value">{money(finance.balances.availableReferral)}</strong><p>Shown separately from your investment balance</p><a className="dash-outline-button" href="/dashboard?view=referrals">Referral details <ArrowRight size={15} /></a></article></div><article className="dash-panel dash-full-panel"><div className="dash-panel-heading"><div><h2>Wallet activity</h2><p>Deposit and withdrawal requests</p></div><a href="/dashboard?view=transactions">See all <ArrowRight size={15} /></a></div><ActivityList transactions={finance.transactions} /></article></>;
 }
 
-function TradingView() {
-  return <><PageHeading title="Copy trading" subtitle="Review the strategies you are following." /><div className="dash-notice"><Sparkles size={18} /><span>Copying is always under your control. Pause, resume, or stop a strategy at any time.</span></div><article className="dash-panel dash-full-panel"><h2>No active strategies</h2><p className="dash-deposit-helper">Available copy-trading strategies will appear here when configured.</p></article><p className="dash-risk-note">Trading involves risk, and losses are possible.</p></>;
+function TradingView({ balance, onBalanceUpdated }: { balance: number; onBalanceUpdated: () => void }) {
+  const [dashboard, setDashboard] = useState<TradeDashboard>({ openTrades: [], positions: [] });
+  const [amounts, setAmounts] = useState<Record<string, string>>({});
+  const [interestAmounts, setInterestAmounts] = useState<Record<string, string>>({});
+  const [interestAddresses, setInterestAddresses] = useState<Record<string, string>>({});
+  const [interestNetworks, setInterestNetworks] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const refresh = async () => { try { setDashboard(await tradeRequest<TradeDashboard>("me")); setError(""); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not load copy trades."); } finally { setLoading(false); } };
+  useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(), 30_000); return () => window.clearInterval(timer); }, []);
+  const moneyValue = (value: number) => `${Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 8 })} USD`;
+  const dateValue = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+  const withdrawalWindowOpen = (position: TradePosition) => {
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", { timeZone: position.timezone, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
+      const dayIndex = ({ Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 } as Record<string, number>)[parts.find((part) => part.type === "weekday")?.value ?? ""];
+      const time = `${parts.find((part) => part.type === "hour")?.value ?? "00"}:${parts.find((part) => part.type === "minute")?.value ?? "00"}`;
+      return position.interestWithdrawalDays.includes(dayIndex) && time >= position.interestWindowStart && time <= position.interestWindowEnd;
+    } catch { return false; }
+  };
+  const perform = async (key: string, action: () => Promise<unknown>, success: string) => {
+    setBusy(key); setError(""); setNotice("");
+    try { await action(); setNotice(success); await refresh(); onBalanceUpdated(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "The trade action could not be completed."); }
+    finally { setBusy(""); }
+  };
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const participationBySignal = new Map(dashboard.positions.map((position) => [position.signalId, position]));
+  return <><PageHeading title="Copy trading" subtitle="Choose a live trade, review the terms, and decide when to stop copying." />
+    <section className="dash-trade-wallet"><span><Wallet size={19}/></span><div><small>Available to invest</small><strong>{moneyValue(balance)}</strong></div><a href="/dashboard?view=wallet">View wallet <ArrowRight size={14}/></a></section>
+    <div className="dash-trade-disclosure"><ShieldCheck size={17}/><span>Each trade displays its configured ROI and capital lock term. ROI is a projection and is not guaranteed. Your principal stays locked until its maturity date, including if you stop copying early.</span></div>
+    {error && <p className="dash-notification-error" role="alert">{error}</p>}{notice && <p className="dash-trade-success" role="status"><Check size={15}/>{notice}</p>}
+    <section className="dash-trade-section"><div className="dash-trade-section-heading"><div><p>LIVE NOW</p><h2>Available to copy</h2></div><span>{dashboard.openTrades.length} {dashboard.openTrades.length === 1 ? "trade" : "trades"}</span></div>
+      {loading ? <article className="dash-panel dash-trade-empty">Loading live trades…</article> : dashboard.openTrades.length ? <div className="dash-trade-grid">{dashboard.openTrades.map((trade: CopyTradeSignal) => {
+        const position = trade.participation ?? participationBySignal.get(trade.id);
+        const amount = amounts[trade.id] ?? String(trade.minimumInvestment);
+        return <article className="dash-trade-card" key={trade.id}><div className="dash-trade-card-top"><span className="dash-trade-pair-icon"><Zap size={18}/></span><span className="dash-trade-live"><i/>Live</span></div><p className="dash-trade-pair">{trade.pair}</p><h3>{trade.title}</h3><div className="dash-trade-terms"><div><small>Configured ROI</small><strong>{trade.roiPercent}%</strong><span>over full term</span></div><div><small>Capital lock</small><strong>{trade.lockDays} days</strong><span>until {dateValue(trade.closesAt)}</span></div></div>
+          <div className="dash-trade-mini-details"><span>Entry range</span><strong>{moneyValue(trade.minimumInvestment)} – {moneyValue(trade.maximumInvestment)}</strong></div><div className="dash-trade-mini-details"><span>Interest window</span><strong>{trade.interestWithdrawalDays.map((day) => dayNames[day]).join(", ")} · {trade.interestWindowStart}–{trade.interestWindowEnd} {trade.timezone}</strong></div>
+          {position ? <div className={`dash-trade-joined ${position.status}`}><div><strong>{position.status === "active" ? "You’re copying this trade" : position.status === "stopped" ? "Copying stopped" : "Trade matured"}</strong><small>{moneyValue(position.principal)} principal · {position.status === "matured" ? "Principal returned" : `Matures ${dateValue(position.maturesAt)}`}</small></div>{position.status === "active" && <button type="button" disabled={busy === position.id} onClick={() => void perform(position.id, () => tradeRequest(`positions/${position.id}/stop`, "POST", {}), "Copying stopped. Your principal remains locked until maturity.")}>Stop</button>}</div> : <form className="dash-trade-join" onSubmit={(event) => { event.preventDefault(); void perform(trade.id, async () => { await tradeRequest(`${trade.id}/join`, "POST", { amount: Number(amount) }); setAmounts((current) => ({ ...current, [trade.id]: amount })); }, "Trade joined. Your capital is now locked for the stated term."); }}><label>Investment amount<input type="number" min={trade.minimumInvestment} max={trade.maximumInvestment} step="0.01" value={amount} onChange={(event) => setAmounts((current) => ({ ...current, [trade.id]: event.target.value }))} required /></label><small>Available balance: {moneyValue(balance)}</small><button type="submit" disabled={Boolean(busy) || Number(amount) > balance || Number(amount) < trade.minimumInvestment}>{busy === trade.id ? "Joining…" : <><Zap size={15}/> Copy trade</>}</button></form>}
+        </article>;
+      })}</div> : <article className="dash-panel dash-trade-empty"><span><Clock3 size={20}/></span><strong>No live trade right now</strong><p>Scheduled copy trades will appear here when they go live.</p></article>}
+    </section>
+    <section className="dash-trade-section"><div className="dash-trade-section-heading"><div><p>YOUR ACTIVITY</p><h2>My copied trades</h2></div><span>{dashboard.positions.length} joined</span></div>
+      {dashboard.positions.length ? <div className="dash-position-list">{dashboard.positions.map((position) => { const windowOpen = withdrawalWindowOpen(position); return <article className="dash-panel dash-position-card" key={position.id}><div className="dash-position-head"><span className="dash-trade-pair-icon"><Zap size={17}/></span><div><strong>{position.pair}</strong><small>{position.title}</small></div><span className={`dash-position-status ${position.status}`}>{position.status === "active" ? "Copying" : position.status === "stopped" ? "Stopped" : "Matured"}</span></div><div className="dash-position-values"><div><small>Locked principal</small><strong>{moneyValue(position.principal)}</strong></div><div><small>Accrued interest</small><strong className="positive">{moneyValue(position.interestAccrued)}</strong></div><div><small>Available to request</small><strong>{moneyValue(position.interestAvailable)}</strong></div><div><small>Principal maturity</small><strong>{dateValue(position.maturesAt)}</strong></div></div>
+          {position.interestAvailable >= 0.01 && <div className="dash-interest-claim"><div><strong>{windowOpen ? "Interest withdrawal window is open" : "Interest withdrawal window"}</strong><small>{position.interestWithdrawalDays.map((day) => dayNames[day]).join(", ")} · {position.interestWindowStart}–{position.interestWindowEnd} ({position.timezone}). Requests require admin review.</small></div><label>Request amount<input type="number" min="0.01" max={position.interestAvailable} step="0.01" value={interestAmounts[position.id] ?? (Math.floor(position.interestAvailable * 100) / 100).toFixed(2)} onChange={(event) => setInterestAmounts((current) => ({ ...current, [position.id]: event.target.value }))}/></label><label>Wallet address<input type="text" autoComplete="off" placeholder="Destination address" value={interestAddresses[position.id] ?? ""} onChange={(event) => setInterestAddresses((current) => ({ ...current, [position.id]: event.target.value }))}/></label><label>Network<input type="text" placeholder="e.g. TRC20" value={interestNetworks[position.id] ?? ""} onChange={(event) => setInterestNetworks((current) => ({ ...current, [position.id]: event.target.value }))}/></label><button type="button" disabled={!windowOpen || Boolean(busy) || Number(interestAmounts[position.id] ?? position.interestAvailable) > position.interestAvailable || Number(interestAmounts[position.id] ?? position.interestAvailable) < 0.01 || (interestAddresses[position.id] ?? "").trim().length < 8 || !(interestNetworks[position.id] ?? "").trim()} onClick={() => void perform(`interest-${position.id}`, () => tradeRequest(`positions/${position.id}/withdraw-interest`, "POST", { amount: Number(interestAmounts[position.id] ?? position.interestAvailable), destinationAddress: interestAddresses[position.id], network: interestNetworks[position.id] }), "Interest withdrawal submitted for admin review.")}>{busy === `interest-${position.id}` ? "Submitting…" : "Request interest"}</button></div>}
+        </article>; })}</div> : <article className="dash-panel dash-trade-empty dash-position-empty"><strong>You haven’t copied a trade yet</strong><p>Your trade positions and earned interest will show here after you join a live trade.</p></article>}
+    </section>
+  </>;
 }
 
 function ReferralsView({ balance }: { balance: number }) {
@@ -237,7 +286,7 @@ export function Dashboard({ initialView = "overview" }: { initialView?: string }
     try { await authRequest("signout", {}); } finally { router.replace("/sign-in"); }
   }
   if (!ready) return <AppPreloader label="Loading your account…" />;
-  const activeContent = active === "wallet" ? <WalletView finance={finance} /> : active === "deposit" ? <DepositView /> : active === "withdraw" ? <WithdrawalView /> : active === "notifications" ? <NotificationsPage /> : active === "trading" ? <TradingView /> : active === "referrals" ? <ReferralsView balance={finance.balances.referral} /> : active === "levels" ? <LevelsView /> : active === "transactions" ? <TransactionsView finance={finance} /> : active === "settings" ? <SettingsView email={email} name={userName} onSignOut={signOut} /> : active === "help" ? <HelpView /> : <Overview email={email} name={userName} finance={finance} />;
+  const activeContent = active === "wallet" ? <WalletView finance={finance} /> : active === "deposit" ? <DepositView /> : active === "withdraw" ? <WithdrawalView /> : active === "notifications" ? <NotificationsPage /> : active === "trading" ? <TradingView balance={finance.balances.availableTrading} onBalanceUpdated={() => { void financeRequest<FinanceSummary>("me").then(setFinance).catch(() => undefined); }} /> : active === "referrals" ? <ReferralsView balance={finance.balances.referral} /> : active === "levels" ? <LevelsView /> : active === "transactions" ? <TransactionsView finance={finance} /> : active === "settings" ? <SettingsView email={email} name={userName} onSignOut={signOut} /> : active === "help" ? <HelpView /> : <Overview email={email} name={userName} finance={finance} />;
   const initials = userName ? userName.slice(0, 1).toUpperCase() : email ? email.slice(0, 1).toUpperCase() : "U";
   return <NotificationProvider><div className="dash-app" onClick={navigateWithinDashboard}>
     {signingOut && <AppPreloader label="Signing out…" />}

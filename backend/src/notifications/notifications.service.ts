@@ -79,6 +79,15 @@ export class NotificationsService implements OnModuleInit {
     return { sent: created.length };
   }
 
+  async notifyAll(title: string, message: string, url = '/dashboard?view=notifications') {
+    const recipients = await this.users.find({ role: 'user', isDisabled: { $ne: true } }).select('_id').lean().exec();
+    if (!recipients.length) return { sent: 0 };
+    const userIds = recipients.map((user) => String(user._id));
+    const created = await this.notifications.insertMany(userIds.map((userId) => ({ userId: new Types.ObjectId(userId), title: title.trim(), message: message.trim(), category: 'general' })), { ordered: false });
+    await this.sendToUsers(userIds, { title: title.trim(), body: message.trim(), url });
+    return { sent: created.length };
+  }
+
   private async sendToUser(userId: string, message: PushMessage) {
     if (!this.pushConfigured) return;
     const subscriptions = await this.subscriptions.find({ userId: new Types.ObjectId(userId) }).lean().exec();

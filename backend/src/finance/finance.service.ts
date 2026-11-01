@@ -6,12 +6,13 @@ import { AdminAudit } from '../admin/admin-audit.schema.js';
 import { FinanceSettings, FinanceTransaction } from './finance.schema.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { ReferralsService } from '../referrals/referrals.service.js';
+import { TradePosition } from '../trades/trade.schema.js';
 
 type Actor = { id: string; email: string };
 @Injectable()
 export class FinanceService {
   private readonly logger = new Logger(FinanceService.name);
-  constructor(@InjectModel(User.name) private readonly users: Model<User>, @InjectModel(FinanceTransaction.name) private readonly transactions: Model<FinanceTransaction>, @InjectModel(FinanceSettings.name) private readonly settings: Model<FinanceSettings>, @InjectModel(AdminAudit.name) private readonly audit: Model<AdminAudit>, private readonly notifications: NotificationsService, private readonly referrals: ReferralsService) {}
+  constructor(@InjectModel(User.name) private readonly users: Model<User>, @InjectModel(FinanceTransaction.name) private readonly transactions: Model<FinanceTransaction>, @InjectModel(FinanceSettings.name) private readonly settings: Model<FinanceSettings>, @InjectModel(AdminAudit.name) private readonly audit: Model<AdminAudit>, @InjectModel(TradePosition.name) private readonly tradePositions: Model<TradePosition>, private readonly notifications: NotificationsService, private readonly referrals: ReferralsService) {}
   private async config() { return await this.settings.findOneAndUpdate({ key: 'platform' }, { $setOnInsert: { key: 'platform' } }, { upsert: true, new: true, setDefaultsOnInsert: true }).lean().exec(); }
   async publicSettings() { const s = await this.config(); return { depositWalletAddress: s?.depositWalletAddress ?? '', depositNetwork: s?.depositNetwork ?? '', depositInstructions: s?.depositInstructions ?? '', minimumDeposit: s?.minimumDeposit ?? 0, minimumWithdrawal: s?.minimumWithdrawal ?? 0 }; }
   async updateSettings(input: { depositWalletAddress: string; depositNetwork: string; depositInstructions: string; minimumDeposit: number; minimumWithdrawal: number }, actor: Actor) {
@@ -82,6 +83,10 @@ export class FinanceService {
           const update = decision === 'approved' ? { $inc: { [balance]: -transaction.amount, [pending]: -transaction.amount } } : { $inc: { [pending]: -transaction.amount } };
           const updated = await this.users.updateOne({ _id: transaction.userId, [pending]: { $gte: transaction.amount }, ...(decision === 'approved' ? { [balance]: { $gte: transaction.amount } } : {}) }, update, { session }).exec();
           if (!updated.matchedCount) throw new ConflictException('Could not settle the reserved withdrawal amount.');
+          if (decision === 'rejected' && transaction.sourceType === 'trade_interest' && transaction.tradePositionId) {
+            const restored = await this.tradePositions.updateOne({ _id: transaction.tradePositionId, userId: transaction.userId, claimedInterest: { $gte: transaction.amount } }, { $inc: { claimedInterest: -transaction.amount } }, { session }).exec();
+            if (!restored.matchedCount) throw new ConflictException('Could not restore the rejected trade interest to the position.');
+          }
         }
         await this.audit.create([{ actorId: actor.id, actorEmail: actor.email, action: `finance.${transaction.type}.${decision}`, targetType: 'transaction', targetId: id, targetLabel: String(transaction.userId), detail: decision === 'rejected' ? reason!.trim() : `${transaction.amount} USDT approved.` }], { session });
       });

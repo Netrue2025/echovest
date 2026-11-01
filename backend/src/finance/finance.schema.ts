@@ -17,6 +17,8 @@ export class FinanceTransaction {
   @Prop({ default: '' }) rejectionReason!: string;
   @Prop({ default: '' }) reviewedBy!: string;
   @Prop() reviewedAt?: Date;
+  @Prop({ enum: ['trade_interest'] }) sourceType?: 'trade_interest';
+  @Prop({ type: Types.ObjectId, default: null }) tradePositionId?: Types.ObjectId | null;
 }
 export const FinanceTransactionSchema = SchemaFactory.createForClass(FinanceTransaction);
 FinanceTransactionSchema.index({ userId: 1, createdAt: -1 });
