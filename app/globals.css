@@ -583,3 +583,27 @@ body{overflow-x:hidden}@media(max-width:900px){.grid-lines>.container{grid-templ
 .dash-balance-lock-info>span[role="tooltip"]{position:fixed;z-index:10000;display:block;width:min(264px,calc(100vw - 24px));padding:11px 12px;border:1px solid #FFFFFF24;border-radius:11px;background:#1E2329;color:#F5F6F7;font-size:11px;font-weight:450;line-height:1.5;box-shadow:0 10px 28px #0004;opacity:1;visibility:visible;transform:none}
 @media(max-width:800px){.dash-trading-info{min-height:58px;margin-top:10px;padding:8px 10px;grid-template-columns:30px minmax(0,1fr) auto;gap:0 8px}.dash-trading-info-icon{width:29px;height:29px}.dash-trading-info-icon svg{width:17px;height:17px}.dash-trading-info-copy>span{font-size:9px}.dash-trading-info-copy>strong{font-size:11px}.dash-trading-info-copy>small{font-size:8px}.dash-trading-info-status{padding:4px 6px;font-size:8px}.dash-mobile-balance-head .dash-balance-lock-info svg{display:block}.dash-balance-lock-info>button{width:22px;height:22px}}
 @media(min-width:801px){.dash-position-values{grid-template-columns:repeat(3,minmax(0,1fr))}}
+
+/* Live copy-trade actions embedded in the market chart */
+.dash-mobile-market.has-live-trade{border-color:#E6D28B;box-shadow:0 8px 24px #9B7A1710}
+.dash-mobile-market.has-live-trade .dash-mobile-coin{background:#FFF4D1;color:#936D00}
+.dash-chart-trade-inset{margin:0 12px 11px;padding:11px 12px;border:1px solid #F0E3BD;border-radius:12px;background:linear-gradient(120deg,#FFFCF3,#FFF8E5)}
+.dash-chart-trade-stats{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}
+.dash-chart-trade-stats>span{min-width:0;display:grid;gap:3px}
+.dash-chart-trade-stats>span+span{text-align:right}
+.dash-chart-trade-stats small{color:#8B8063;font-size:9px}
+.dash-chart-trade-stats strong{color:#20262C;font-size:14px;font-weight:750;letter-spacing:-.02em}
+.dash-chart-trade-stats>span:first-child strong{color:#987100}
+.dash-chart-trade-meter{height:4px;margin:9px 0 6px;overflow:hidden;border-radius:99px;background:#EDE5D1}
+.dash-chart-trade-meter i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#F0B90B,#00A878);transition:width .5s linear}
+.dash-chart-trade-caption{display:block;color:#93896F;font-size:8px;line-height:1.4}
+.dash-chart-copy-form{margin-top:9px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end}
+.dash-chart-copy-form label{display:grid;gap:4px;color:#70664F;font-size:9px;font-weight:650}
+.dash-chart-copy-form input{width:100%;height:35px;padding:0 9px;border:1px solid #E8DEC4;border-radius:8px;background:#fff;color:#252A2F;font:inherit;font-size:12px;outline:none}
+.dash-chart-copy-form input:focus{border-color:#D4A800;box-shadow:0 0 0 3px #F0B90B20}
+.dash-chart-copy-button{min-height:35px;padding:0 12px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;border-radius:8px;background:#F0B90B;color:#20262C;font:inherit;font-size:10px;font-weight:750;white-space:nowrap;cursor:pointer}
+.dash-chart-copy-button.stop{background:#FFF0EE;color:#B33B32;border:1px solid #F2D4D0}
+.dash-chart-copy-button:disabled{opacity:.48;cursor:not-allowed}
+.dash-chart-trade-closed,.dash-chart-trade-error,.dash-chart-trade-message{margin:8px 0 0;font-size:9px;line-height:1.4}
+.dash-chart-trade-closed{color:#7D6B37}.dash-chart-trade-error{color:#B33B32}.dash-chart-trade-message{color:#18784F}
+.dash-spin{animation:dash-chart-spin .8s linear infinite}@keyframes dash-chart-spin{to{transform:rotate(360deg)}}

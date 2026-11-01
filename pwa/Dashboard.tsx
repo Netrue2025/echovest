@@ -91,9 +91,9 @@ function ActivityList({ transactions = [] }: { transactions?: FinanceTransaction
   </div>)}</div>;
 }
 
-function Overview({ email, name, finance }: { email: string; name: string; finance: FinanceSummary }) {
+function Overview({ email, name, finance, onBalanceUpdated }: { email: string; name: string; finance: FinanceSummary; onBalanceUpdated: () => void }) {
   return <>
-    <MobileHome email={email} name={name} finance={finance} />
+    <MobileHome email={email} name={name} finance={finance} onBalanceUpdated={onBalanceUpdated} />
     <div className="dash-desktop-overview">
     <PageHeading title="Your overview" subtitle="A quick look at your wallet and trading activity." />
     <section className="dash-stat-grid" aria-label="Account summary">
@@ -117,7 +117,7 @@ function Overview({ email, name, finance }: { email: string; name: string; finan
   </>;
 }
 
-function MobileHome({ email, name, finance }: { email: string; name: string; finance: FinanceSummary }) {
+function MobileHome({ email, name, finance, onBalanceUpdated }: { email: string; name: string; finance: FinanceSummary; onBalanceUpdated: () => void }) {
   const firstName = name.split(/\s+/)[0] || email.split("@")[0]?.split(/[._-]/)[0] || "there";
   return <section className="dash-mobile-home" aria-label="Home overview">
     <header className="dash-mobile-greeting"><div><p>Hello, <strong>{firstName}</strong> <span aria-hidden="true">{"\u{1F44B}"}</span></p><small>Welcome back!</small></div><div className="dash-mobile-greeting-actions"><a href="/dashboard?view=levels" className="dash-mobile-level"><Award size={14} /> Blue</a><NotificationBell className="dash-mobile-notification" size={22} /></div></header>
@@ -136,7 +136,7 @@ function MobileHome({ email, name, finance }: { email: string; name: string; fin
       <a href="/dashboard?view=wallet"><span><ShieldCheck size={19} /></span>Vault</a>
       <a href="/dashboard?view=referrals"><span><Users size={19} /></span>Referral</a>
     </nav>
-    <BtcMarketChart />
+    <BtcMarketChart availableBalance={finance.balances.availableTrading} onBalanceUpdated={onBalanceUpdated} />
     <article className="dash-mobile-activity"><div><h2>Recent activity</h2><a href="/dashboard?view=transactions">See all <ArrowRight size={14} /></a></div>{finance.transactions.length ? finance.transactions.slice(0, 3).map((item) => <div className="dash-mobile-activity-row" key={item.id}><span className={`dash-mobile-activity-icon ${item.type === "withdrawal" ? "out" : "in"}`}>{item.type === "deposit" ? <ArrowDownLeft size={17} /> : <ArrowUpRight size={17} />}</span><span><b>{item.type === "deposit" ? "Deposit" : "Withdrawal"}</b><small className={`dash-status-label ${financeStatusTone(item.status)}`}>{financeStatusLabel(item.status)}</small></span><strong className={item.type === "deposit" ? "in" : "out"}>{item.type === "deposit" ? "+" : "-"}{money(item.amount)}</strong></div>) : <p className="dash-deposit-helper">No transactions yet.</p>}</article>
     <p className="dash-mobile-disclosure">Account balances update after approved transactions.</p>
   </section>;
@@ -172,7 +172,7 @@ function TradingView({ balance, onBalanceUpdated }: { balance: number; onBalance
       {loading ? <article className="dash-panel dash-trade-empty">Loading live trades...</article> : dashboard.openTrades.length ? <div className="dash-trade-grid">{dashboard.openTrades.map((trade: CopyTradeSignal) => {
         const position = trade.participation ?? participationBySignal.get(trade.id);
         const amount = amounts[trade.id] ?? String(trade.minimumInvestment);
-        return <article className="dash-trade-card" key={trade.id}><div className="dash-trade-card-top"><span className="dash-trade-pair-icon"><Zap size={18}/></span><span className="dash-trade-live"><i/>Live</span></div><p className="dash-trade-pair">{trade.pair}</p><h3>{trade.title}</h3><div className="dash-trade-terms"><div><small>Configured ROI</small><strong>{trade.roiPercent}%</strong><span>over full term</span></div><div><small>Capital lock</small><strong>{formatLockTerm(trade.lockDays)}</strong><span>from when you join</span></div></div>
+        return <article className="dash-trade-card" key={trade.id}><div className="dash-trade-card-top"><span className="dash-trade-pair-icon"><Zap size={18}/></span><span className="dash-trade-live"><i/>Live</span></div><p className="dash-trade-pair">{trade.pair}</p><h3>{trade.title}</h3><div className="dash-trade-terms"><div><small>Configured ROI</small><strong>{trade.roiPercent}%</strong><span>over full session</span></div><div><small>Session duration</small><strong>{formatLockTerm(trade.lockDays)}</strong><span>from scheduled start</span></div></div>
           <div className="dash-trade-mini-details"><span>Entry range</span><strong>{moneyValue(trade.minimumInvestment)} - {moneyValue(trade.maximumInvestment)}</strong></div>
           {position ? <div className={`dash-trade-joined ${position.status}`}><div><strong>{position.status === "active" ? "You're copying this trade" : position.status === "stopped" ? "Copying stopped" : "Trade matured"}</strong><small>{moneyValue(position.principal)} principal Â· {position.principalReturnedAt ? "Principal returned" : `Matures ${dateValue(position.maturesAt)}`}</small></div>{position.status === "active" && <button type="button" disabled={busy === position.id} onClick={() => void perform(position.id, () => tradeRequest(`positions/${position.id}/stop`, "POST", {}), "Copying stopped. Your principal returned to the investment balance, where the account-wide withdrawal lock applies. ROI is finalized.")}>Stop</button>}</div> : <form className="dash-trade-join" onSubmit={(event) => { event.preventDefault(); void perform(trade.id, async () => { await tradeRequest(`${trade.id}/join`, "POST", { amount: Number(amount) }); setAmounts((current) => ({ ...current, [trade.id]: amount })); }, "Trade joined. Your capital is now locked for the stated term."); }}><label>Investment amount<input type="number" min={trade.minimumInvestment} max={trade.maximumInvestment} step="0.01" value={amount} onChange={(event) => setAmounts((current) => ({ ...current, [trade.id]: event.target.value }))} required /></label><small>Available balance: {moneyValue(balance)}</small><button type="submit" disabled={Boolean(busy) || Number(amount) > balance || Number(amount) < trade.minimumInvestment}>{busy === trade.id ? "Joining..." : <><Zap size={15}/> Copy trade</>}</button></form>}
         </article>;
@@ -305,7 +305,8 @@ export function Dashboard({ initialView = "overview" }: { initialView?: string }
     try { await authRequest("signout", {}); } finally { router.replace("/sign-in"); }
   }
   if (!ready) return <AppPreloader label="Loading your account..." />;
-  const activeContent = active === "wallet" ? <WalletView finance={finance} /> : active === "deposit" ? <DepositView /> : active === "withdraw" ? <WithdrawalView /> : active === "notifications" ? <NotificationsPage /> : active === "trading" ? <TradingView balance={finance.balances.availableTrading} onBalanceUpdated={() => { void financeRequest<FinanceSummary>("me").then(setFinance).catch(() => undefined); }} /> : active === "referrals" ? <ReferralsView balance={finance.balances.referral} /> : active === "levels" ? <LevelsView /> : active === "transactions" ? <TransactionsView finance={finance} /> : active === "settings" ? <SettingsView email={email} name={userName} onSignOut={signOut} /> : active === "help" ? <HelpView /> : <Overview email={email} name={userName} finance={finance} />;
+  const refreshFinance = () => { void financeRequest<FinanceSummary>("me").then(setFinance).catch(() => undefined); };
+  const activeContent = active === "wallet" ? <WalletView finance={finance} /> : active === "deposit" ? <DepositView /> : active === "withdraw" ? <WithdrawalView /> : active === "notifications" ? <NotificationsPage /> : active === "trading" ? <TradingView balance={finance.balances.availableTrading} onBalanceUpdated={refreshFinance} /> : active === "referrals" ? <ReferralsView balance={finance.balances.referral} /> : active === "levels" ? <LevelsView /> : active === "transactions" ? <TransactionsView finance={finance} /> : active === "settings" ? <SettingsView email={email} name={userName} onSignOut={signOut} /> : active === "help" ? <HelpView /> : <Overview email={email} name={userName} finance={finance} onBalanceUpdated={refreshFinance} />;
   const initials = userName ? userName.slice(0, 1).toUpperCase() : email ? email.slice(0, 1).toUpperCase() : "U";
   return <NotificationProvider><div className="dash-app" onClick={navigateWithinDashboard}>
     {signingOut && <AppPreloader label="Signing out..." />}

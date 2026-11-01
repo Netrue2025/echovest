@@ -18,7 +18,7 @@ const signalDuration = (signal: Pick<CopyTradeSignal, 'startsAt' | 'endsAt' | 'l
   return Number.isFinite(scheduledDuration) && scheduledDuration > 0 ? scheduledDuration : duration(signal.lockDays ?? 1);
 };
 const scheduleEndsAt = (signal: Pick<CopyTradeSignal, 'startsAt' | 'endsAt' | 'lockDays'>) => signal.endsAt ? new Date(signal.endsAt) : new Date(new Date(signal.startsAt).getTime() + duration(signal.lockDays ?? 1));
-const maturesAt = (position: Pick<TradePosition, 'joinedAt'>, signal: Pick<CopyTradeSignal, 'startsAt' | 'endsAt' | 'lockDays'>) => new Date(new Date(position.joinedAt).getTime() + signalDuration(signal));
+const maturesAt = (_position: Pick<TradePosition, 'joinedAt'>, signal: Pick<CopyTradeSignal, 'startsAt' | 'endsAt' | 'lockDays'>) => scheduleEndsAt(signal);
 const lockTermLabel = (milliseconds: number) => {
   const totalMinutes = Math.max(1, Math.round(milliseconds / 60_000));
   const days = Math.floor(totalMinutes / 1440), hours = Math.floor((totalMinutes % 1440) / 60), minutes = totalMinutes % 60;
@@ -79,12 +79,13 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private interestAt(position: TradePosition, signal: CopyTradeSignal, now = new Date()) {
-    const start = new Date(position.joinedAt).getTime();
+    const scheduledStart = new Date(signal.startsAt).getTime();
     const end = maturesAt(position, signal).getTime();
+    const start = Math.max(new Date(position.joinedAt).getTime(), scheduledStart);
     const cutoff = position.stoppedAt ? Math.min(new Date(position.stoppedAt).getTime(), end) : end;
     const elapsed = Math.max(0, Math.min(now.getTime(), cutoff) - start);
     const fullProfit = position.principal * signal.roiPercent / 100;
-    return fullProfit * Math.min(1, elapsed / Math.max(1, end - start));
+    return fullProfit * Math.min(1, elapsed / Math.max(1, end - scheduledStart));
   }
 
   private serializePosition(position: TradePosition, signal: CopyTradeSignal) {

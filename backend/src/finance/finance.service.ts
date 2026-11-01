@@ -41,9 +41,10 @@ export class FinanceService {
     const grossProfitEarned = positions.reduce((total, position) => {
       const signal = signalMap.get(String(position.signalId));
       if (!signal) return total;
-      const start = new Date(position.joinedAt).getTime();
+      const scheduledStart = new Date(signal.startsAt).getTime();
       const scheduleDuration = signal.endsAt && signal.startsAt ? new Date(signal.endsAt).getTime() - new Date(signal.startsAt).getTime() : (signal.lockDays ?? 1) * 24 * 60 * 60 * 1000;
-      const end = start + (Number.isFinite(scheduleDuration) && scheduleDuration > 0 ? scheduleDuration : 24 * 60 * 60 * 1000);
+      const start = Math.max(new Date(position.joinedAt).getTime(), scheduledStart);
+      const end = scheduledStart + (Number.isFinite(scheduleDuration) && scheduleDuration > 0 ? scheduleDuration : 24 * 60 * 60 * 1000);
       const cutoff = position.stoppedAt ? Math.min(new Date(position.stoppedAt).getTime(), end) : end;
       const elapsed = Math.max(0, Math.min(Date.now(), cutoff) - start);
       const profit = position.principal * signal.roiPercent / 100 * Math.min(1, elapsed / Math.max(1, end - start));
