@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  ArrowDownLeft, ArrowRight, ArrowUpRight, Award, Check, ChevronDown, Clock3, Copy,
+  ArrowDownLeft, ArrowRight, ArrowUpRight, Award, Check, ChevronDown, Clock3, Copy, LockKeyhole,
   CircleHelp, Crown, Gem, Home, LogOut, Medal, Menu, ReceiptText, Settings, ShieldCheck, CalendarDays,
   Sparkles, Users, Wallet, X, Zap, User, Plus, Link2, Share2, UserPlus, Coins,
 } from "lucide-react";
@@ -30,7 +30,7 @@ const formatView = (id: string) => navItems.find((item) => item.id === id)?.labe
 const validViews = new Set([...navItems.map(({ id }) => id), "settings", "help", "deposit", "withdraw", "notifications"]);
 const normalizeView = (value: string | null | undefined) => value && validViews.has(value) ? value : "overview";
 const money = (amount: number) => `${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 8 })} USD`;
-const emptyFinance: FinanceSummary = { balances: { trading: 0, referral: 0, availableTrading: 0, availableReferral: 0, totalProfitEarned: 0, availableProfit: 0 }, transactions: [] };
+const emptyFinance: FinanceSummary = { balances: { trading: 0, referral: 0, availableTrading: 0, maturedPrincipal: 0, availableMaturedPrincipal: 0, availableReferral: 0, totalProfitEarned: 0, availableProfit: 0 }, transactions: [] };
 
 function BalanceAmount({ amount }: { amount: number }) {
   return <>{amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 8 })}<small className="dash-currency-unit">USD</small></>;
@@ -54,6 +54,10 @@ function PageHeading({ title, subtitle }: { title: string; subtitle: string }) {
   return <div className="dash-page-heading"><div><p className="dash-kicker">YOUR ACCOUNT</p><h1>{title}</h1><p className="dash-subtitle">{subtitle}</p></div><NotificationBell className="dash-page-mobile-notification" size={21} /></div>;
 }
 
+function BalanceLockInfo() {
+  return <details className="dash-balance-lock-info"><summary aria-label="About the investment lock"><LockKeyhole size={14} /></summary><span>Funds joined to a trade are locked for the admin-set term (for example, 60 days). They become withdrawable after that trade matures. Before maturity, use the principal only to copy trades.</span></details>;
+}
+
 function TradeSessionCard() {
   const [dashboard, setDashboard] = useState<TradeDashboard>({ openTrades: [], nextTrade: null, positions: [] });
   useEffect(() => { let active = true; const load = () => tradeRequest<TradeDashboard>("me").then((data) => { if (active) setDashboard(data); }).catch(() => undefined); void load(); const timer = window.setInterval(load, 30_000); return () => { active = false; window.clearInterval(timer); }; }, []);
@@ -62,9 +66,9 @@ function TradeSessionCard() {
   const date = (value?: string) => { if (!value) return "Time to be announced"; const parsed = new Date(value); return Number.isNaN(parsed.getTime()) ? "Time to be announced" : parsed.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); };
   return <article className={`dash-trading-info ${live ? "live" : "upcoming"}`}>
     <div className="dash-trading-info-icon"><CalendarDays size={21} /></div>
-    <div className="dash-trading-info-copy"><span>{live ? "Trading now" : "Next trading session"}</span><strong>{live ? `${live.title} · ${live.pair}` : next ? `${next.title} · ${next.pair}` : "No session scheduled"}</strong><small>{live ? `Live now · ${live.roiPercent}% configured ROI over ${live.lockDays} days` : next ? date(next.startsAt) : "Check back for the next admin scheduled trade."}</small></div>
+    <div className="dash-trading-info-copy"><span>{live ? "Trading now" : "Next Trading Session"}</span><strong>{live ? `${live.title} · ${live.pair}` : next ? `${next.title} · ${next.pair}` : "No session scheduled"}</strong><small>{live ? `Live now · ${live.roiPercent}% configured ROI over ${live.lockDays} days` : next ? date(next.startsAt) : "Check back for the next admin scheduled trade."}</small></div>
     <span className={`dash-trading-info-status ${live ? "live" : "upcoming"}`}><i />{live ? "Live" : next ? "Upcoming" : "Info"}</span>
-    <p className="dash-trading-info-note">Your investment balance is for joining trades and remains locked until maturity. Earned ROI is tracked separately and can be requested during the trade’s approved withdrawal window.</p>
+    <p className="dash-trading-info-note"><strong>What is copy trading?</strong> Join an admin-scheduled market strategy. Your principal stays locked for its term; earned ROI is tracked separately and can be requested on its approved dates.</p>
     <a href="/dashboard?view=trading">Trade information <ArrowRight size={14} /></a>
   </article>;
 }
@@ -84,9 +88,9 @@ function Overview({ email, name, finance }: { email: string; name: string; finan
     <div className="dash-desktop-overview">
     <PageHeading title="Your overview" subtitle="A quick look at your wallet and trading activity." />
     <section className="dash-stat-grid" aria-label="Account summary">
-      <article className="dash-balance-card"><div className="dash-balance-top"><span>Investment balance</span><Wallet size={19} /></div><strong><BalanceAmount amount={finance.balances.availableTrading} /></strong><p><span className="dash-sample-dot" /> Available to join trades</p><div className="dash-balance-footer"><span>Referral {money(finance.balances.availableReferral)}</span><span>Profit {money(finance.balances.availableProfit ?? 0)}</span></div></article>
+      <article className="dash-balance-card"><div className="dash-balance-top"><span>Investment balance <BalanceLockInfo /></span><Wallet size={19} /></div><strong><BalanceAmount amount={finance.balances.availableTrading} /></strong><div className="dash-balance-footer"><span>Referral {money(finance.balances.availableReferral)}</span><span>Matured {money(finance.balances.availableMaturedPrincipal ?? 0)}</span></div><div className="dash-balance-actions"><a href="/dashboard?view=deposit"><Plus size={14} /> Deposit</a><a href={"/dashboard?view=withdraw&wallet=trading"}><ArrowUpRight size={14} /> Withdraw</a></div></article>
       <article className="dash-stat-card"><span className="dash-stat-icon teal"><Users size={19} /></span><small>Referral earnings</small><strong>{money(finance.balances.availableReferral)}</strong><span className="dash-stat-caption">Held in a separate balance</span><a href="/dashboard?view=referrals">View referrals <ArrowRight size={14} /></a></article>
-      <article className="dash-stat-card"><span className="dash-stat-icon blue"><Zap size={19} /></span><small>Total profit earned</small><strong>{money(finance.balances.totalProfitEarned ?? 0)}</strong><span className="dash-stat-caption">{money(finance.balances.availableProfit ?? 0)} available in withdrawal windows</span><a href="/dashboard?view=trading">View profit details <ArrowRight size={14} /></a></article>
+      <article className="dash-stat-card"><span className="dash-stat-icon blue"><Zap size={19} /></span><small>Total profit earned</small><strong>{money(finance.balances.totalProfitEarned ?? 0)}</strong><span className="dash-stat-caption">Unrequested ROI is available on each trade’s withdrawal dates</span><a href="/dashboard?view=trading">View profit details <ArrowRight size={14} /></a></article>
       <article className="dash-stat-card"><span className="dash-stat-icon violet"><Award size={19} /></span><small>Membership level</small><strong>Blue</strong><span className="dash-stat-caption">Your current level</span><a href="/dashboard?view=levels">View level <ArrowRight size={14} /></a></article>
     </section>
 
@@ -108,12 +112,12 @@ function MobileHome({ email, name, finance }: { email: string; name: string; fin
   const firstName = name.split(/\s+/)[0] || email.split("@")[0]?.split(/[._-]/)[0] || "there";
   return <section className="dash-mobile-home" aria-label="Home overview">
     <header className="dash-mobile-greeting"><div><p>Hello, <strong>{firstName}</strong> <span aria-hidden="true">👋</span></p><small>Welcome back!</small></div><div className="dash-mobile-greeting-actions"><a href="/dashboard?view=levels" className="dash-mobile-level"><Award size={14} /> Blue</a><NotificationBell className="dash-mobile-notification" size={22} /></div></header>
-    <article className="dash-mobile-balance">
-      <div className="dash-mobile-balance-head"><span>Investment balance</span><Wallet size={19} /></div>
+      <article className="dash-mobile-balance">
+      <div className="dash-mobile-balance-head"><span>Investment balance <BalanceLockInfo /></span><Wallet size={19} /></div>
       <strong><BalanceAmount amount={finance.balances.availableTrading} /></strong>
-      <small className="dash-mobile-balance-caption">Available to join trades · principal unlocks at maturity</small>
-      <div className="dash-mobile-balance-actions"><a href="/dashboard?view=deposit"><Plus size={16} /> Deposit</a><a href="/dashboard?view=trading"><Zap size={16} /> Join trade</a></div>
+      <div className="dash-mobile-balance-actions"><a href="/dashboard?view=deposit"><Plus size={16} /> Deposit</a><a href={"/dashboard?view=withdraw&wallet=trading"}><ArrowUpRight size={16} /> Withdraw</a></div>
     </article>
+    <TradeSessionCard />
     <div className="dash-mobile-summary">
       <a href="/dashboard?view=referrals"><span className="dash-mobile-summary-icon"><Users size={17} /></span><small>Referral earnings</small><strong>{money(finance.balances.availableReferral)}</strong></a>
       <a href="/dashboard?view=trading"><span className="dash-mobile-summary-icon"><Zap size={17} /></span><small>Total profit earned</small><strong>{money(finance.balances.totalProfitEarned ?? 0)}</strong><em>{money(finance.balances.availableProfit ?? 0)} available</em></a>
@@ -124,14 +128,13 @@ function MobileHome({ email, name, finance }: { email: string; name: string; fin
       <a href="/dashboard?view=referrals"><span><Users size={19} /></span>Referral</a>
     </nav>
     <BtcMarketChart />
-    <TradeSessionCard />
     <article className="dash-mobile-activity"><div><h2>Recent activity</h2><a href="/dashboard?view=transactions">See all <ArrowRight size={14} /></a></div>{finance.transactions.length ? finance.transactions.slice(0, 3).map((item) => <div className="dash-mobile-activity-row" key={item.id}><span className={`dash-mobile-activity-icon ${item.type === "withdrawal" ? "out" : "in"}`}>{item.type === "deposit" ? <ArrowDownLeft size={17} /> : <ArrowUpRight size={17} />}</span><span><b>{item.type === "deposit" ? "Deposit" : "Withdrawal"}</b><small className={`dash-status-label ${financeStatusTone(item.status)}`}>{financeStatusLabel(item.status)}</small></span><strong className={item.type === "deposit" ? "in" : "out"}>{item.type === "deposit" ? "+" : "-"}{money(item.amount)}</strong></div>) : <p className="dash-deposit-helper">No transactions yet.</p>}</article>
     <p className="dash-mobile-disclosure">Account balances update after approved transactions.</p>
   </section>;
 }
 
 function WalletView({ finance }: { finance: FinanceSummary }) {
-  return <><PageHeading title="Wallet" subtitle="Review your balances and recent wallet activity." /><div className="dash-subview-stats"><article className="dash-panel"><span className="dash-overline">INVESTMENT BALANCE</span><strong className="dash-large-value">{money(finance.balances.availableTrading)}</strong><p>Use this balance to join trades. Principal unlocks at maturity and cannot be withdrawn.</p><div className="dash-wallet-actions"><a className="dash-outline-button" href="/dashboard?view=deposit">Deposit funds <ArrowRight size={15} /></a><a className="dash-outline-button" href="/dashboard?view=trading">Join a trade <ArrowRight size={15} /></a></div></article><article className="dash-panel"><span className="dash-overline">REFERRAL BALANCE</span><strong className="dash-large-value">{money(finance.balances.availableReferral)}</strong><p>Available for withdrawal after admin review.</p><a className="dash-outline-button" href="/dashboard?view=withdraw">Withdraw referral funds <ArrowRight size={15} /></a></article></div><article className="dash-panel dash-full-panel"><div className="dash-panel-heading"><div><h2>Wallet activity</h2><p>Deposit and withdrawal requests</p></div><a href="/dashboard?view=transactions">See all <ArrowRight size={15} /></a></div><ActivityList transactions={finance.transactions} /></article></>;
+  return <><PageHeading title="Wallet" subtitle="Review your balances and recent wallet activity." /><div className="dash-subview-stats"><article className="dash-panel"><span className="dash-overline">INVESTMENT BALANCE</span><strong className="dash-large-value">{money(finance.balances.availableTrading)}</strong><p>Use this balance to join trades. Invested principal becomes withdrawable after its configured maturity date.</p><small className="dash-wallet-matured">Matured and withdrawable: {money(finance.balances.availableMaturedPrincipal ?? 0)}</small><div className="dash-wallet-actions"><a className="dash-outline-button" href="/dashboard?view=deposit">Deposit funds <ArrowRight size={15} /></a><a className="dash-outline-button" href="/dashboard?view=trading">Join a trade <ArrowRight size={15} /></a><a className="dash-outline-button" href="/dashboard?view=withdraw">Withdraw matured principal <ArrowRight size={15} /></a></div></article><article className="dash-panel"><span className="dash-overline">REFERRAL BALANCE</span><strong className="dash-large-value">{money(finance.balances.availableReferral)}</strong><p>Available for withdrawal after admin review.</p><a className="dash-outline-button" href="/dashboard?view=withdraw">Withdraw funds <ArrowRight size={15} /></a></article></div><article className="dash-panel dash-full-panel"><div className="dash-panel-heading"><div><h2>Wallet activity</h2><p>Deposit and withdrawal requests</p></div><a href="/dashboard?view=transactions">See all <ArrowRight size={15} /></a></div><ActivityList transactions={finance.transactions} /></article></>;
 }
 
 function TradingView({ balance, onBalanceUpdated }: { balance: number; onBalanceUpdated: () => void }) {

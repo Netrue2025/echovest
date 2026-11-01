@@ -128,8 +128,14 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
         if (await this.positions.exists({ userId: new Types.ObjectId(userId), signalId: new Types.ObjectId(signalId) }).session(session)) throw new ConflictException('You already joined or stopped this trade. You cannot join it again.');
         const openSignal = await this.signals.findOneAndUpdate({ _id: signalId, status: 'open' }, { $inc: { currentCopiers: 1 } }, { new: true, session }).exec();
         if (!openSignal) throw new ConflictException('This copy trade has just closed to new participants.');
-        const user = await this.users.findOneAndUpdate({ _id: userId, role: 'user', isDisabled: { $ne: true }, $expr: { $gte: [{ $subtract: [{ $ifNull: ['$tradingBalance', 0] }, { $ifNull: ['$pendingTradingWithdrawals', 0] }] }, amount] } }, { $inc: { tradingBalance: -amount } }, { new: true, session }).exec();
-        if (!user) throw new BadRequestException('Your available investment balance is too low for this amount.');
+        const investor = await this.users.findOne({ _id: userId, role: 'user', isDisabled: { $ne: true }, $expr: { $gte: [{ $subtract: [{ $ifNull: ['$tradingBalance', 0] }, { $add: [{ $ifNull: ['$pendingTradingWithdrawals', 0] }, { $ifNull: ['$pendingMaturedWithdrawals', 0] }] }] }, amount] } }).session(session).select('tradingBalance maturedPrincipalBalance').lean().exec();
+        if (!investor) throw new BadRequestException('Your available investment balance is too low for this amount.');
+        const maturedToReinvest = Math.min(investor.maturedPrincipalBalance ?? 0, amount);
+        const investorFilter: Record<string, unknown> = { _id: userId, tradingBalance: investor.tradingBalance };
+        if (investor.maturedPrincipalBalance === undefined) investorFilter.maturedPrincipalBalance = { $exists: false };
+        else investorFilter.maturedPrincipalBalance = investor.maturedPrincipalBalance;
+        const debited = await this.users.updateOne(investorFilter, { $inc: { tradingBalance: -amount, ...(maturedToReinvest > 0 ? { maturedPrincipalBalance: -maturedToReinvest } : {}) } }, { session }).exec();
+        if (!debited.matchedCount) throw new ConflictException('Your investment balance changed. Refresh and try again.');
         const created = await this.positions.create([{ userId: new Types.ObjectId(userId), signalId: new Types.ObjectId(signalId), principal: amount, status: 'active', joinedAt: new Date(), claimedInterest: 0 }], { session });
         position = created[0];
         await this.writeAudit(userId, 'system', 'trades.position.joined', String(position._id), signal.pair, `${amount} USD principal locked until ${maturesAt(position, signal).toISOString()}.`, session);
@@ -201,7 +207,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
         await session.withTransaction(async () => {
           const settled = await this.positions.findOneAndUpdate({ _id: item._id, status: { $in: ['active', 'stopped'] }, principalReturnedAt: null }, { $set: { status: 'matured', principalReturnedAt: now } }, { new: true, session }).exec();
           if (!settled) return;
-          const credited = await this.users.updateOne({ _id: settled.userId }, { $inc: { tradingBalance: settled.principal } }, { session }).exec();
+          const credited = await this.users.updateOne({ _id: settled.userId }, { $inc: { tradingBalance: settled.principal, maturedPrincipalBalance: settled.principal } }, { session }).exec();
           if (!credited.matchedCount) throw new NotFoundException('Could not return the matured trade principal.');
           await this.writeAudit(String(settled.userId), 'system', 'trades.position.matured', String(settled._id), signal.pair, `${settled.principal} USD principal returned to available investment balance.`, session);
         });

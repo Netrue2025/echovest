@@ -20,8 +20,10 @@ export class User {
   @Prop({ default: false, index: true }) isDisabled!: boolean;
   @Prop({ default: false, index: true }) withdrawalsDisabled!: boolean;
   @Prop({ default: 0, min: 0 }) tradingBalance!: number;
+  @Prop({ default: 0, min: 0 }) maturedPrincipalBalance!: number;
   @Prop({ default: 0, min: 0 }) referralBalance!: number;
   @Prop({ default: 0, min: 0 }) pendingTradingWithdrawals!: number;
+  @Prop({ default: 0, min: 0 }) pendingMaturedWithdrawals!: number;
   @Prop({ default: 0, min: 0 }) pendingReferralWithdrawals!: number;
 }
 

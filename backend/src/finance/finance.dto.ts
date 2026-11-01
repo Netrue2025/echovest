@@ -6,7 +6,7 @@ export class DepositRequestDto {
 }
 export class WithdrawalRequestDto {
   @IsNumber({ maxDecimalPlaces: 8 }) @Min(0.01) amount!: number;
-  @IsIn(['referral']) balanceType!: 'referral';
+  @IsIn(['trading', 'referral']) balanceType!: 'trading' | 'referral';
   @IsString() @MinLength(8) @MaxLength(256) destinationAddress!: string;
   @IsString() @MinLength(1) @MaxLength(80) network!: string;
 }

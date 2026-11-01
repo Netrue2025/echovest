@@ -21,9 +21,16 @@ export class FinanceService {
     return result;
   }
   async summary(userId: string) {
-    const [user, transactions, positions] = await Promise.all([this.users.findById(userId).select('tradingBalance referralBalance pendingTradingWithdrawals pendingReferralWithdrawals').lean().exec(), this.listUserTransactions(userId), this.tradePositions.find({ userId: new Types.ObjectId(userId) }).select('signalId principal joinedAt stoppedAt claimedInterest').lean().exec()]);
+    const [user, transactions, positions] = await Promise.all([this.users.findById(userId).select('tradingBalance maturedPrincipalBalance referralBalance pendingTradingWithdrawals pendingMaturedWithdrawals pendingReferralWithdrawals').lean().exec(), this.listUserTransactions(userId), this.tradePositions.find({ userId: new Types.ObjectId(userId) }).select('signalId principal joinedAt stoppedAt claimedInterest principalReturnedAt').lean().exec()]);
     if (!user) throw new NotFoundException('Account not found.');
     const trading = user.tradingBalance ?? 0, referral = user.referralBalance ?? 0;
+    let maturedPrincipal = user.maturedPrincipalBalance ?? 0;
+    const hasMaturityLedger = await this.users.exists({ _id: userId, maturedPrincipalBalance: { $exists: true } }).exec();
+    if (!hasMaturityLedger) {
+      const returnedPrincipal = positions.reduce((sum, position) => sum + (position.principalReturnedAt ? position.principal : 0), 0);
+      maturedPrincipal = Math.max(0, Math.min(returnedPrincipal, trading - (user.pendingTradingWithdrawals ?? 0)));
+      await this.users.updateOne({ _id: userId, maturedPrincipalBalance: { $exists: false } }, { $set: { maturedPrincipalBalance: maturedPrincipal, pendingMaturedWithdrawals: 0 } }).exec();
+    }
     const signals = positions.length ? await this.tradeSignals.find({ _id: { $in: positions.map((position) => position.signalId) } }).select('roiPercent lockDays').lean().exec() : [];
     const signalMap = new Map(signals.map((signal) => [String(signal._id), signal]));
     const totalProfitEarned = positions.reduce((total, position) => {
@@ -37,7 +44,8 @@ export class FinanceService {
       return total + profit;
     }, 0);
     const profitAlreadyRequested = positions.reduce((total, position) => total + (position.claimedInterest ?? 0), 0);
-    return { balances: { trading, referral, availableTrading: Math.max(0, trading - (user.pendingTradingWithdrawals ?? 0)), availableReferral: Math.max(0, referral - (user.pendingReferralWithdrawals ?? 0)), totalProfitEarned, availableProfit: Math.max(0, totalProfitEarned - profitAlreadyRequested) }, transactions };
+    const pendingMatured = user.pendingMaturedWithdrawals ?? 0;
+    return { balances: { trading, referral, availableTrading: Math.max(0, trading - (user.pendingTradingWithdrawals ?? 0) - pendingMatured), maturedPrincipal, availableMaturedPrincipal: Math.max(0, maturedPrincipal - pendingMatured), availableReferral: Math.max(0, referral - (user.pendingReferralWithdrawals ?? 0)), totalProfitEarned, availableProfit: Math.max(0, totalProfitEarned - profitAlreadyRequested) }, transactions };
   }
   async listUserTransactions(userId: string) {
     const docs = await this.transactions.find({ userId: new Types.ObjectId(userId) }).sort({ createdAt: -1 }).limit(100).lean().exec();
@@ -54,15 +62,21 @@ export class FinanceService {
     catch (error) { if (typeof error === 'object' && error !== null && 'code' in error && error.code === 11000) throw new ConflictException('This transaction hash has already been submitted.'); throw error; }
   }
   async requestWithdrawal(userId: string, input: { amount: number; balanceType: 'trading' | 'referral'; destinationAddress: string; network: string }) {
-    if (input.balanceType !== 'referral') throw new ForbiddenException('Investment principal is locked for copy trading. Request eligible trade profit from the Copy trading page after its withdrawal window opens.');
-    const [s, user] = await Promise.all([this.config(), this.users.findById(userId).select('+role isDisabled withdrawalsDisabled tradingBalance referralBalance pendingTradingWithdrawals pendingReferralWithdrawals').lean().exec()]);
+    const [s, user] = await Promise.all([this.config(), this.users.findById(userId).select('+role isDisabled withdrawalsDisabled tradingBalance maturedPrincipalBalance referralBalance pendingTradingWithdrawals pendingMaturedWithdrawals pendingReferralWithdrawals').lean().exec()]);
     if (!user || user.isDisabled || user.withdrawalsDisabled) throw new ForbiddenException('Withdrawals are disabled for this account.');
     if (input.amount < (s?.minimumWithdrawal ?? 0)) throw new BadRequestException(`The minimum withdrawal is ${s?.minimumWithdrawal ?? 0} USD.`);
-    const balanceField = 'referralBalance';
-    const pendingField = 'pendingReferralWithdrawals';
-    const held = await this.users.findOneAndUpdate({ _id: userId, isDisabled: { $ne: true }, withdrawalsDisabled: { $ne: true }, $expr: { $gte: [{ $subtract: [{ $ifNull: [`$${balanceField}`, 0] }, { $ifNull: [`$${pendingField}`, 0] }] }, input.amount] } }, { $inc: { [pendingField]: input.amount } }, { new: true }).lean().exec();
+    const isMaturedPrincipal = input.balanceType === 'trading';
+    const balanceField = isMaturedPrincipal ? 'maturedPrincipalBalance' : 'referralBalance';
+    const pendingField = isMaturedPrincipal ? 'pendingMaturedWithdrawals' : 'pendingReferralWithdrawals';
+    const availability = isMaturedPrincipal
+      ? { $and: [
+          { $gte: [{ $subtract: [{ $ifNull: ['$maturedPrincipalBalance', 0] }, { $ifNull: ['$pendingMaturedWithdrawals', 0] }] }, input.amount] },
+          { $gte: [{ $subtract: [{ $ifNull: ['$tradingBalance', 0] }, { $add: [{ $ifNull: ['$pendingTradingWithdrawals', 0] }, { $ifNull: ['$pendingMaturedWithdrawals', 0] }] }] }, input.amount] },
+        ] }
+      : { $gte: [{ $subtract: [{ $ifNull: ['$referralBalance', 0] }, { $ifNull: ['$pendingReferralWithdrawals', 0] }] }, input.amount] };
+    const held = await this.users.findOneAndUpdate({ _id: userId, isDisabled: { $ne: true }, withdrawalsDisabled: { $ne: true }, $expr: availability }, { $inc: { [pendingField]: input.amount } }, { new: true }).lean().exec();
     if (!held) throw new BadRequestException('The amount exceeds your available balance.');
-    try { return await this.transactions.create({ userId: new Types.ObjectId(userId), type: 'withdrawal', amount: input.amount, balanceType: input.balanceType, status: 'pending_review', destinationAddress: input.destinationAddress.trim(), network: input.network.trim() }); }
+    try { return await this.transactions.create({ userId: new Types.ObjectId(userId), type: 'withdrawal', amount: input.amount, balanceType: input.balanceType, status: 'pending_review', destinationAddress: input.destinationAddress.trim(), network: input.network.trim(), maturedPrincipalWithdrawal: isMaturedPrincipal }); }
     catch (error) { await this.users.updateOne({ _id: userId }, { $inc: { [pendingField]: -input.amount } }).exec(); throw error; }
   }
   async adminTransactions(type?: 'deposit' | 'withdrawal') {
@@ -93,7 +107,13 @@ export class FinanceService {
         }
         if (transaction.type === 'withdrawal') {
           const profitLedger = transaction.sourceType === 'trade_interest' && transaction.profitLedger;
-          if (!profitLedger) {
+          if (transaction.maturedPrincipalWithdrawal) {
+            const update = decision === 'approved'
+              ? { $inc: { tradingBalance: -transaction.amount, maturedPrincipalBalance: -transaction.amount, pendingMaturedWithdrawals: -transaction.amount } }
+              : { $inc: { pendingMaturedWithdrawals: -transaction.amount } };
+            const updated = await this.users.updateOne({ _id: transaction.userId, pendingMaturedWithdrawals: { $gte: transaction.amount }, ...(decision === 'approved' ? { tradingBalance: { $gte: transaction.amount }, maturedPrincipalBalance: { $gte: transaction.amount } } : {}) }, update, { session }).exec();
+            if (!updated.matchedCount) throw new ConflictException('Could not settle the reserved matured principal withdrawal.');
+          } else if (!profitLedger) {
             const balance = transaction.balanceType === 'trading' ? 'tradingBalance' : 'referralBalance';
             const pending = transaction.balanceType === 'trading' ? 'pendingTradingWithdrawals' : 'pendingReferralWithdrawals';
             const update = decision === 'approved' ? { $inc: { [balance]: -transaction.amount, [pending]: -transaction.amount } } : { $inc: { [pending]: -transaction.amount } };
@@ -117,7 +137,9 @@ export class FinanceService {
           ? `Your ${transaction.amount} USDT deposit was approved and credited to your trading balance.`
           : transaction.sourceType === 'trade_interest'
             ? `Your ${transaction.amount} USD trade profit withdrawal was approved.`
-            : `Your ${transaction.amount} USDT withdrawal was approved and debited from your ${transaction.balanceType} balance.`
+            : transaction.maturedPrincipalWithdrawal
+              ? `Your ${transaction.amount} USD matured investment principal withdrawal was approved.`
+              : `Your ${transaction.amount} USDT withdrawal was approved and debited from your ${transaction.balanceType} balance.`
         : `${expectedType === 'deposit' ? 'Your deposit' : 'Your withdrawal'} was rejected. ${reason?.trim() || 'Please review the request details.'}`;
       try { await this.notifications.notifyUser(String(transaction.userId), title, message, expectedType); }
       catch (error) { this.logger.error(`Transaction ${expectedType} notification could not be saved: ${error instanceof Error ? error.message : 'unknown error'}`); }
