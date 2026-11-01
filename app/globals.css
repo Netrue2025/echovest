@@ -564,3 +564,19 @@ body{overflow-x:hidden}@media(max-width:900px){.grid-lines>.container{grid-templ
 .dash-profit-continue{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:43px;padding:0 15px;border-radius:10px;background:#F0B90B;color:#1E2329;font-size:11px;font-weight:750}
 .dash-wallet-matured{color:#0A956C}
 @media(max-width:800px){.dash-balance-card{min-height:0}.dash-balance-actions>a{min-height:32px}.dash-withdraw-wallet-select{padding:12px}.dash-profit-continue{width:100%}}
+
+/* Compact trade schedule banner and accessible balance-lock tooltip. */
+.dash-trading-info{min-height:64px;margin-top:12px;padding:9px 13px;grid-template-columns:34px minmax(0,1fr) auto;gap:0 10px;border-color:#F0B90B50;background:linear-gradient(105deg,#FFF9E6,#FFFDF5);box-shadow:0 4px 13px #1E232908}
+.dash-trading-info-icon{width:32px;height:32px;grid-row:auto;border-radius:9px;background:#F0B90B24;color:#9A7100}
+.dash-trading-info-copy{gap:2px}
+.dash-trading-info-copy>span{color:#62676D;font-size:10px}
+.dash-trading-info-copy>strong{color:#1E2329;font-size:12px}
+.dash-trading-info-copy>small{color:#737A83;font-size:9px}
+.dash-trading-info-status{padding:5px 8px;background:#fff;color:#555D66;font-size:9px}
+.dash-trading-info-status.live{background:#E8F7F0;color:#008B62}
+.dash-trading-info-status.live i{background:#00A878}
+.dash-balance-lock-info{position:static;z-index:auto}
+.dash-balance-lock-info>button{width:23px;height:23px;padding:0;display:grid;place-items:center;border:1px solid #F0B90B66;border-radius:50%;background:#F0B90B22;color:#F0B90B;cursor:pointer}
+.dash-balance-lock-info>button svg{display:block;width:14px;height:14px;color:inherit;stroke-width:2.5}
+.dash-balance-lock-info>span[role="tooltip"]{position:fixed;z-index:10000;display:block;width:min(264px,calc(100vw - 24px));padding:11px 12px;border:1px solid #FFFFFF24;border-radius:11px;background:#1E2329;color:#F5F6F7;font-size:11px;font-weight:450;line-height:1.5;box-shadow:0 10px 28px #0004;opacity:1;visibility:visible;transform:none}
+@media(max-width:800px){.dash-trading-info{min-height:58px;margin-top:10px;padding:8px 10px;grid-template-columns:30px minmax(0,1fr) auto;gap:0 8px}.dash-trading-info-icon{width:29px;height:29px}.dash-trading-info-icon svg{width:17px;height:17px}.dash-trading-info-copy>span{font-size:9px}.dash-trading-info-copy>strong{font-size:11px}.dash-trading-info-copy>small{font-size:8px}.dash-trading-info-status{padding:4px 6px;font-size:8px}.dash-mobile-balance-head .dash-balance-lock-info svg{display:block}.dash-balance-lock-info>button{width:22px;height:22px}}

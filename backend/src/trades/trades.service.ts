@@ -76,7 +76,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
 
   private serializePosition(position: TradePosition, signal: CopyTradeSignal) {
     const accrued = this.interestAt(position, signal);
-    return { id: String(position._id), signalId: String(signal._id), pair: signal.pair, title: signal.title, principal: position.principal, status: position.status, joinedAt: position.joinedAt, stoppedAt: position.stoppedAt ?? null, maturesAt: maturesAt(position, signal), roiPercent: signal.roiPercent, lockDays: signal.lockDays, interestAccrued: accrued, interestClaimed: position.claimedInterest, interestAvailable: Math.max(0, accrued - position.claimedInterest), interestWithdrawalDays: signal.interestWithdrawalDays, interestWindowStart: signal.interestWindowStart, interestWindowEnd: signal.interestWindowEnd, timezone: signal.timezone };
+    return { id: String(position._id), signalId: String(signal._id), pair: signal.pair, title: signal.title, principal: position.principal, status: position.status, joinedAt: position.joinedAt, stoppedAt: position.stoppedAt ?? null, principalReturnedAt: position.principalReturnedAt ?? null, maturesAt: maturesAt(position, signal), roiPercent: signal.roiPercent, lockDays: signal.lockDays, interestAccrued: accrued, interestClaimed: position.claimedInterest, interestAvailable: Math.max(0, accrued - position.claimedInterest), interestWithdrawalDays: signal.interestWithdrawalDays, interestWindowStart: signal.interestWindowStart, interestWindowEnd: signal.interestWindowEnd, timezone: signal.timezone };
   }
 
   async publishDueSignals() {
@@ -146,11 +146,22 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
 
   async stop(userId: string, positionId: string) {
     if (!Types.ObjectId.isValid(positionId)) throw new NotFoundException('Copy trade participation not found.');
-    const position = await this.positions.findOneAndUpdate({ _id: positionId, userId: new Types.ObjectId(userId), status: 'active' }, { $set: { status: 'stopped', stoppedAt: new Date() } }, { new: true }).exec();
-    if (!position) throw new ConflictException('This trade is already stopped or completed.');
-    const signal = await this.signals.findById(position.signalId).lean().exec();
-    if (!signal) throw new NotFoundException('Copy trade details not found.');
-    await this.writeAudit(userId, 'system', 'trades.position.stopped', positionId, signal.pair, 'User stopped copying. Capital remains locked until the stated maturity date.');
+    const session = await this.positions.db.startSession();
+    let position: TradePosition | null = null;
+    let signal!: CopyTradeSignal;
+    try {
+      await session.withTransaction(async () => {
+        const now = new Date();
+        position = await this.positions.findOneAndUpdate({ _id: positionId, userId: new Types.ObjectId(userId), status: 'active', principalReturnedAt: null }, { $set: { status: 'stopped', stoppedAt: now, principalReturnedAt: now } }, { new: true, session }).exec();
+        if (!position) throw new ConflictException('This trade is already stopped or completed.');
+        signal = await this.signals.findById(position.signalId).session(session).exec() as CopyTradeSignal;
+        if (!signal) throw new NotFoundException('Copy trade details not found.');
+        const credited = await this.users.updateOne({ _id: position.userId }, { $inc: { tradingBalance: position.principal, maturedPrincipalBalance: position.principal } }, { session }).exec();
+        if (!credited.matchedCount) throw new NotFoundException('Could not return the trade principal.');
+        await this.writeAudit(userId, 'system', 'trades.position.stopped', positionId, signal.pair, `${position.principal} USD principal returned immediately. ROI finalized at the stop time and remains available in the profit balance.`, session);
+      });
+    } finally { await session.endSession(); }
+    if (!position) throw new ConflictException('This trade could not be stopped. Refresh and try again.');
     return this.serializePosition(position, signal);
   }
 
@@ -175,6 +186,8 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
         if (!position) throw new NotFoundException('Copy trade participation not found.');
         signal = await this.signals.findById(position.signalId).session(session).exec() as CopyTradeSignal;
         if (!signal) throw new NotFoundException('Copy trade details not found.');
+        const activePosition = await this.positions.exists({ userId: new Types.ObjectId(userId), status: 'active' }).session(session).exec();
+        if (activePosition) throw new BadRequestException('Close all active copy trades before requesting a profit withdrawal.');
         const now = new Date();
         const local = this.localDayAndTime(now, signal.timezone);
         if (!signal.interestWithdrawalDays.includes(local.day) || local.time < signal.interestWindowStart || local.time > signal.interestWindowEnd) throw new BadRequestException(`Interest can be requested ${signal.interestWithdrawalDays.map((day) => ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day]).join(', ')} between ${signal.interestWindowStart} and ${signal.interestWindowEnd} (${signal.timezone}).`);

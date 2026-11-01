@@ -107,6 +107,10 @@ export class FinanceService {
         }
         if (transaction.type === 'withdrawal') {
           const profitLedger = transaction.sourceType === 'trade_interest' && transaction.profitLedger;
+          if (profitLedger && decision === 'approved') {
+            const activePosition = await this.tradePositions.exists({ userId: transaction.userId, status: 'active' }).session(session).exec();
+            if (activePosition) throw new ConflictException('This profit withdrawal cannot be approved while the user has an active copy trade.');
+          }
           if (transaction.maturedPrincipalWithdrawal) {
             const update = decision === 'approved'
               ? { $inc: { tradingBalance: -transaction.amount, maturedPrincipalBalance: -transaction.amount, pendingMaturedWithdrawals: -transaction.amount } }
