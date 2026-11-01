@@ -17,7 +17,7 @@ import { financeRequest, financeStatusLabel, financeStatusTone, FinanceSummary, 
 import { NotificationBell, NotificationProvider, NotificationsPage } from "./NotificationCenter";
 import { referralRequest, ReferralOverview } from "../lib/referral-api";
 import { CopyTradeSignal, TradeDashboard, TradePosition, tradeRequest } from "../lib/trading-api";
-import { withdrawalScheduleLabel, withdrawalWindowOpen as isWithdrawalWindowOpen } from "../lib/withdrawal-schedule";
+import { withdrawalScheduleLabel } from "../lib/withdrawal-schedule";
 
 const navItems = [
   { id: "overview", label: "Overview", icon: Home },
@@ -128,8 +128,8 @@ function MobileHome({ email, name, finance }: { email: string; name: string; fin
     </article>
     <TradeSessionCard />
     <div className="dash-mobile-summary">
-      <a href="/dashboard?view=referrals" className="dash-mobile-balance-summary"><span className="dash-mobile-summary-icon"><Users size={17} /></span><small>Referral earnings</small><strong><BalanceAmount amount={finance.balances.availableReferral} /></strong><em>Available balance</em></a>
-      <a href="/dashboard?view=withdraw&wallet=profit" className="dash-mobile-balance-summary"><span className="dash-mobile-summary-icon"><Zap size={17} /></span><small>Total profit earned</small><strong><BalanceAmount amount={finance.balances.totalProfitEarned ?? 0} /></strong><em>{money(finance.balances.availableProfit ?? 0)} available · Withdraw</em></a>
+      <a href="/dashboard?view=referrals" className="dash-mobile-balance-summary"><span className="dash-mobile-summary-icon"><Users size={17} /></span><small>Referral earnings</small><strong><BalanceAmount amount={finance.balances.availableReferral} /></strong><span className="dash-mobile-summary-action">View referral <ArrowRight size={13}/></span></a>
+      <a href="/dashboard?view=withdraw&wallet=profit" className="dash-mobile-balance-summary"><span className="dash-mobile-summary-icon"><Zap size={17} /></span><small>Total profit earned</small><strong><BalanceAmount amount={finance.balances.totalProfitEarned ?? 0} /></strong><span className="dash-mobile-summary-action">Withdraw profit <ArrowRight size={13}/></span></a>
     </div>
     <nav className="dash-mobile-shortcuts" aria-label="Quick actions">
       <a href="/dashboard?view=trading"><span><Zap size={19} /></span>Trade</a>
@@ -149,9 +149,6 @@ function WalletView({ finance }: { finance: FinanceSummary }) {
 function TradingView({ balance, onBalanceUpdated }: { balance: number; onBalanceUpdated: () => void }) {
   const [dashboard, setDashboard] = useState<TradeDashboard>({ openTrades: [], nextTrade: null, positions: [], withdrawalSettings: { withdrawalDays: [1, 3, 5], withdrawalWindowStart: "09:00", withdrawalWindowEnd: "17:00", withdrawalTimezone: "Africa/Lagos" } });
   const [amounts, setAmounts] = useState<Record<string, string>>({});
-  const [interestAmounts, setInterestAmounts] = useState<Record<string, string>>({});
-  const [interestAddresses, setInterestAddresses] = useState<Record<string, string>>({});
-  const [interestNetworks, setInterestNetworks] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -160,8 +157,6 @@ function TradingView({ balance, onBalanceUpdated }: { balance: number; onBalance
   useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(), 30_000); return () => window.clearInterval(timer); }, []);
   const moneyValue = (value: number) => `${Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 8 })} USD`;
   const dateValue = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
-  const withdrawalWindowOpen = isWithdrawalWindowOpen(dashboard.withdrawalSettings);
-  const hasActiveTrades = dashboard.positions.some((position) => position.status === "active");
   const perform = async (key: string, action: () => Promise<unknown>, success: string) => {
     setBusy(key); setError(""); setNotice("");
     try { await action(); setNotice(success); await refresh(); onBalanceUpdated(); }
@@ -184,8 +179,8 @@ function TradingView({ balance, onBalanceUpdated }: { balance: number; onBalance
       })}</div> : <article className="dash-panel dash-trade-empty"><span><Clock3 size={20}/></span><strong>No live trade right now</strong><p>Scheduled copy trades will appear here when they go live.</p></article>}
     </section>
     <section className="dash-trade-section"><div className="dash-trade-section-heading"><div><p>YOUR ACTIVITY</p><h2>My copied trades</h2></div><span>{dashboard.positions.length} joined</span></div>
-      {dashboard.positions.length ? <div className="dash-position-list">{dashboard.positions.map((position) => { const eligibleDate = position.capitalUnlockAt ?? position.maturesAt; return <article className="dash-panel dash-position-card" key={position.id}><div className="dash-position-head"><span className="dash-trade-pair-icon"><Zap size={17}/></span><div><strong>{position.pair}</strong><small>{position.title}</small></div><span className={`dash-position-status ${position.status}`}>{position.status === "active" ? "Copying" : position.status === "stopped" ? "Stopped" : "Matured"}</span></div><div className="dash-position-values"><div><small>{position.principalReturnedAt ? "Returned principal" : "Locked principal"}</small><strong>{moneyValue(position.principal)}</strong></div><div><small>Accrued interest</small><strong className="positive">{moneyValue(position.interestAccrued)}</strong></div><div><small>Available to request</small><strong>{moneyValue(position.interestAvailable)}</strong></div><div><small>{position.principalReturnedAt ? "Withdrawal eligible" : "Trade maturity"}</small><strong>{position.principalReturnedAt ? dateValue(eligibleDate) : dateValue(position.maturesAt)}</strong></div></div>
-          {position.interestAvailable >= 0.01 && <div className="dash-interest-claim"><div><strong>{hasActiveTrades ? "Close all trades before requesting profit" : withdrawalWindowOpen ? "Account withdrawal window is open" : "Account withdrawal window"}</strong><small>{withdrawalScheduleLabel(dashboard.withdrawalSettings)}. Profit withdrawals require all positions to be closed and remain subject to admin review.</small></div><label>Request amount<input type="number" min="0.01" max={position.interestAvailable} step="0.01" value={interestAmounts[position.id] ?? (Math.floor(position.interestAvailable * 100) / 100).toFixed(2)} onChange={(event) => setInterestAmounts((current) => ({ ...current, [position.id]: event.target.value }))}/></label><label>Wallet address<input type="text" autoComplete="off" placeholder="Destination address" value={interestAddresses[position.id] ?? ""} onChange={(event) => setInterestAddresses((current) => ({ ...current, [position.id]: event.target.value }))}/></label><label>Network<input type="text" placeholder="e.g. TRC20" value={interestNetworks[position.id] ?? ""} onChange={(event) => setInterestNetworks((current) => ({ ...current, [position.id]: event.target.value }))}/></label><button type="button" disabled={!withdrawalWindowOpen || hasActiveTrades || Boolean(busy) || Number(interestAmounts[position.id] ?? position.interestAvailable) > position.interestAvailable || Number(interestAmounts[position.id] ?? position.interestAvailable) < 0.01 || (interestAddresses[position.id] ?? "").trim().length < 8 || !(interestNetworks[position.id] ?? "").trim()} onClick={() => void perform(`interest-${position.id}`, () => tradeRequest(`positions/${position.id}/withdraw-interest`, "POST", { amount: Number(interestAmounts[position.id] ?? position.interestAvailable), destinationAddress: interestAddresses[position.id], network: interestNetworks[position.id] }), "Profit withdrawal submitted for admin review.")}>{busy === `interest-${position.id}` ? "Submitting..." : "Request profit"}</button></div>}
+      {dashboard.positions.length ? <div className="dash-position-list">{dashboard.positions.map((position) => { const eligibleDate = position.capitalUnlockAt ?? position.maturesAt; return <article className="dash-panel dash-position-card" key={position.id}><div className="dash-position-head"><span className="dash-trade-pair-icon"><Zap size={17}/></span><div><strong>{position.pair}</strong><small>{position.title}</small></div><span className={`dash-position-status ${position.status}`}>{position.status === "active" ? "Copying" : position.status === "stopped" ? "Stopped" : "Matured"}</span></div><div className="dash-position-values"><div><small>{position.principalReturnedAt ? "Returned principal" : "Locked principal"}</small><strong>{moneyValue(position.principal)}</strong></div><div><small>Profit earned</small><strong className="positive">{moneyValue(position.interestAccrued)}</strong></div><div><small>{position.principalReturnedAt ? "Capital unlocks" : "Trade ends"}</small><strong>{position.principalReturnedAt ? dateValue(eligibleDate) : dateValue(position.maturesAt)}</strong></div></div>
+          {position.status === "active" && <div className="dash-position-actions"><button type="button" disabled={Boolean(busy)} onClick={() => void perform(position.id, () => tradeRequest(`positions/${position.id}/stop`, "POST", {}), "Copying stopped. Your principal was returned to the investment balance and remains locked until it matures.")}>{busy === position.id ? "Stopping..." : "Stop copying"}</button></div>}
         </article>; })}</div> : <article className="dash-panel dash-trade-empty dash-position-empty"><strong>You haven't copied a trade yet</strong><p>Your trade positions and earned interest will show here after you join a live trade.</p></article>}
     </section>
   </>;

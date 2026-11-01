@@ -26,7 +26,7 @@ export class FinanceService {
   }
   async summary(userId: string) {
     await this.settleMaturedCapital(userId);
-    const [user, transactions, positions, settings] = await Promise.all([this.users.findById(userId).select('tradingBalance maturedPrincipalBalance lockedCapitalLots referralBalance pendingTradingWithdrawals pendingMaturedWithdrawals pendingReferralWithdrawals').lean().exec(), this.listUserTransactions(userId), this.tradePositions.find({ userId: new Types.ObjectId(userId) }).select('signalId principal joinedAt stoppedAt claimedInterest principalReturnedAt').lean().exec(), this.config()]);
+    const [user, transactions, positions, settings, approvedProfitWithdrawals] = await Promise.all([this.users.findById(userId).select('tradingBalance maturedPrincipalBalance lockedCapitalLots referralBalance pendingTradingWithdrawals pendingMaturedWithdrawals pendingReferralWithdrawals').lean().exec(), this.listUserTransactions(userId), this.tradePositions.find({ userId: new Types.ObjectId(userId) }).select('signalId principal joinedAt stoppedAt claimedInterest principalReturnedAt').lean().exec(), this.config(), this.transactions.find({ userId: new Types.ObjectId(userId), type: 'withdrawal', sourceType: 'trade_interest', status: 'approved' }).select('amount').lean().exec()]);
     if (!user) throw new NotFoundException('Account not found.');
     const trading = user.tradingBalance ?? 0, referral = user.referralBalance ?? 0;
     let maturedPrincipal = user.maturedPrincipalBalance ?? 0;
@@ -38,7 +38,7 @@ export class FinanceService {
     }
     const signals = positions.length ? await this.tradeSignals.find({ _id: { $in: positions.map((position) => position.signalId) } }).select('roiPercent lockDays startsAt endsAt').lean().exec() : [];
     const signalMap = new Map(signals.map((signal) => [String(signal._id), signal]));
-    const totalProfitEarned = positions.reduce((total, position) => {
+    const grossProfitEarned = positions.reduce((total, position) => {
       const signal = signalMap.get(String(position.signalId));
       if (!signal) return total;
       const start = new Date(position.joinedAt).getTime();
@@ -49,12 +49,14 @@ export class FinanceService {
       const profit = position.principal * signal.roiPercent / 100 * Math.min(1, elapsed / Math.max(1, end - start));
       return total + profit;
     }, 0);
+    const profitPaid = approvedProfitWithdrawals.reduce((total, transaction) => total + transaction.amount, 0);
+    const totalProfitEarned = Math.max(0, grossProfitEarned - profitPaid);
     const profitAlreadyRequested = positions.reduce((total, position) => total + (position.claimedInterest ?? 0), 0);
     const pendingMatured = user.pendingMaturedWithdrawals ?? 0;
     const lockedCapitalLots = user.lockedCapitalLots ?? [];
     const lockedCapital = lockedCapitalLots.reduce((total, lot) => total + lot.amount, 0);
     const nextCapitalUnlockAt = lockedCapitalLots.reduce<Date | null>((earliest, lot) => !earliest || new Date(lot.unlockAt).getTime() < earliest.getTime() ? new Date(lot.unlockAt) : earliest, null);
-    return { balances: { trading, referral, availableTrading: Math.max(0, trading - (user.pendingTradingWithdrawals ?? 0) - pendingMatured), maturedPrincipal, availableMaturedPrincipal: Math.max(0, maturedPrincipal - pendingMatured), lockedCapital, nextCapitalUnlockAt, capitalLockDays: settings?.capitalLockDays ?? 60, availableReferral: Math.max(0, referral - (user.pendingReferralWithdrawals ?? 0)), totalProfitEarned, availableProfit: Math.max(0, totalProfitEarned - profitAlreadyRequested) }, transactions };
+    return { balances: { trading, referral, availableTrading: Math.max(0, trading - (user.pendingTradingWithdrawals ?? 0) - pendingMatured), maturedPrincipal, availableMaturedPrincipal: Math.max(0, maturedPrincipal - pendingMatured), lockedCapital, nextCapitalUnlockAt, capitalLockDays: settings?.capitalLockDays ?? 60, availableReferral: Math.max(0, referral - (user.pendingReferralWithdrawals ?? 0)), totalProfitEarned, availableProfit: Math.max(0, grossProfitEarned - profitAlreadyRequested) }, transactions };
   }
   async settleMaturedCapital(userId?: string) {
     const now = new Date();
