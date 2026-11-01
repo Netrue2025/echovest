@@ -34,8 +34,8 @@ const money = (amount: number) => `${amount.toLocaleString("en-US", { minimumFra
 const formatLockTerm = (days: number) => { const minutes = Math.max(1, Math.round(days * 1440)); const wholeDays = Math.floor(minutes / 1440); const hours = Math.floor((minutes % 1440) / 60); const remainingMinutes = minutes % 60; return [wholeDays ? `${wholeDays}d` : "", hours ? `${hours}h` : "", remainingMinutes ? `${remainingMinutes}m` : ""].filter(Boolean).join(" "); };
 const emptyFinance: FinanceSummary = { balances: { trading: 0, referral: 0, availableTrading: 0, maturedPrincipal: 0, availableMaturedPrincipal: 0, lockedCapital: 0, nextCapitalUnlockAt: null, capitalLockDays: 60, availableReferral: 0, totalProfitEarned: 0, availableProfit: 0 }, transactions: [] };
 
-function BalanceAmount({ amount }: { amount: number }) {
-  return <>{amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 8 })}<small className="dash-currency-unit">USD</small></>;
+function BalanceAmount({ amount, decimals = 8 }: { amount: number; decimals?: number }) {
+  return <>{amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: decimals })}<small className="dash-currency-unit">USD</small></>;
 }
 
 function Brand() {
@@ -77,7 +77,7 @@ function TradeSessionCard() {
   const date = (value?: string) => { if (!value) return "Time to be announced"; const parsed = new Date(value); return Number.isNaN(parsed.getTime()) ? "Time to be announced" : parsed.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); };
   return <article className={`dash-trading-info ${live ? "live" : "upcoming"}`}>
     <div className="dash-trading-info-icon"><CalendarDays size={20} /></div>
-    <div className="dash-trading-info-copy"><span>{live ? "Trading now" : "Next Trading Session"}</span><strong>{live ? `${live.title} Â· ${live.pair}` : next ? `${next.title} Â· ${next.pair}` : "No session scheduled"}</strong><small>{live ? `Live Â· ${live.roiPercent}% ROI Â· ${formatLockTerm(live.lockDays)} term` : next ? `${date(next.startsAt)}${next.endsAt ? ` - ${date(next.endsAt)}` : ""}` : "Check back for the next scheduled trade."}</small></div>
+    <div className="dash-trading-info-copy"><span>{live ? "Trading now" : "Next Trading Session"}</span><strong>{live ? `${live.title} | ${live.pair}` : next ? `${next.title} | ${next.pair}` : "No session scheduled"}</strong><small>{live ? `Live | ${live.roiPercent}% ROI | ${formatLockTerm(live.lockDays)} term` : next ? `${date(next.startsAt)}${next.endsAt ? ` - ${date(next.endsAt)}` : ""}` : "Check back for the next scheduled trade."}</small></div>
     <span className={`dash-trading-info-status ${live ? "live" : "upcoming"}`}><i />{live ? "Live" : next ? "Upcoming" : "Info"}</span>
   </article>;
 }
@@ -99,7 +99,7 @@ function Overview({ email, name, finance, onBalanceUpdated }: { email: string; n
     <section className="dash-stat-grid" aria-label="Account summary">
       <article className="dash-balance-card"><div className="dash-balance-top"><span>Investment balance <BalanceLockInfo days={finance.balances.capitalLockDays} /></span><Wallet size={19} /></div><strong><BalanceAmount amount={finance.balances.availableTrading} /></strong><div className="dash-balance-footer"><span>Referral {money(finance.balances.availableReferral)}</span><span>Matured {money(finance.balances.availableMaturedPrincipal ?? 0)}</span></div><div className="dash-balance-actions"><a href="/dashboard?view=deposit"><Plus size={14} /> Deposit</a><a href={"/dashboard?view=withdraw&wallet=trading"}><ArrowUpRight size={14} /> Withdraw</a></div></article>
       <article className="dash-stat-card dash-balance-stat"><span className="dash-stat-icon teal"><Users size={19} /></span><small>Referral earnings</small><strong><BalanceAmount amount={finance.balances.availableReferral} /></strong><span className="dash-stat-caption">Available referral balance</span><a href="/dashboard?view=referrals">View referrals <ArrowRight size={14} /></a></article>
-      <a className="dash-stat-card dash-balance-stat dash-balance-stat-link" href="/dashboard?view=withdraw&wallet=profit#profit-withdraw-section"><span className="dash-stat-icon blue"><Zap size={19} /></span><small>Total profit earned</small><strong><BalanceAmount amount={finance.balances.totalProfitEarned ?? 0} /></strong><span className="dash-stat-caption">{money(finance.balances.availableProfit ?? 0)} available to withdraw</span><span className="dash-stat-link-label">Withdraw profit <ArrowRight size={14} /></span></a>
+      <a className="dash-stat-card dash-balance-stat dash-balance-stat-link" href="/dashboard?view=withdraw&wallet=profit#profit-withdraw-section"><span className="dash-stat-icon blue"><Zap size={19} /></span><small>Total profit earned</small><strong><BalanceAmount amount={finance.balances.totalProfitEarned ?? 0} decimals={2} /></strong><span className="dash-stat-caption">{money(finance.balances.availableProfit ?? 0)} available to withdraw</span><span className="dash-stat-link-label">Withdraw profit <ArrowRight size={14} /></span></a>
       <article className="dash-stat-card"><span className="dash-stat-icon violet"><Award size={19} /></span><small>Membership level</small><strong>Blue</strong><span className="dash-stat-caption">Your current level</span><a href="/dashboard?view=levels">View level <ArrowRight size={14} /></a></article>
     </section>
 
@@ -129,7 +129,7 @@ function MobileHome({ email, name, finance, onBalanceUpdated }: { email: string;
     <TradeSessionCard />
     <div className="dash-mobile-summary">
       <a href="/dashboard?view=referrals" className="dash-mobile-balance-summary"><span className="dash-mobile-summary-icon"><Users size={17} /></span><small>Referral earnings</small><strong><BalanceAmount amount={finance.balances.availableReferral} /></strong><span className="dash-mobile-summary-action">View referral <ArrowRight size={13}/></span></a>
-      <a href="/dashboard?view=withdraw&wallet=profit#profit-withdraw-section" className="dash-mobile-balance-summary"><span className="dash-mobile-summary-icon"><Zap size={17} /></span><small>Total profit earned</small><strong><BalanceAmount amount={finance.balances.totalProfitEarned ?? 0} /></strong><span className="dash-mobile-summary-action">Withdraw profit <ArrowRight size={13}/></span></a>
+      <a href="/dashboard?view=withdraw&wallet=profit#profit-withdraw-section" className="dash-mobile-balance-summary"><span className="dash-mobile-summary-icon"><Zap size={17} /></span><small>Total profit earned</small><strong><BalanceAmount amount={finance.balances.totalProfitEarned ?? 0} decimals={2} /></strong><span className="dash-mobile-summary-action">Withdraw profit <ArrowRight size={13}/></span></a>
     </div>
     <nav className="dash-mobile-shortcuts" aria-label="Quick actions">
       <a href="/dashboard?view=trading"><span><Zap size={19} /></span>Trade</a>
@@ -168,7 +168,7 @@ function TradingView({ balance, onBalanceUpdated }: { balance: number; onBalance
     <section className="dash-trade-wallet"><span><Wallet size={19}/></span><div><small>Available to invest</small><strong>{moneyValue(balance)}</strong></div><a href="/dashboard?view=wallet">View wallet <ArrowRight size={14}/></a></section>
     <div className="dash-trade-disclosure"><ShieldCheck size={17}/><span>ROI is a platform projection and is not guaranteed. Stopping or completing a trade returns principal to your investment balance, where it follows the account-wide capital lock. Profit withdrawals follow {withdrawalScheduleLabel(dashboard.withdrawalSettings)} and require all your trades to be closed.</span></div>
     {error && <p className="dash-notification-error" role="alert">{error}</p>}{notice && <p className="dash-trade-success" role="status"><Check size={15}/>{notice}</p>}
-    <section className="dash-trade-section"><div className="dash-trade-section-heading"><div><p>LIVE NOW</p><h2>Available to copy</h2></div><span>{dashboard.openTrades.length} {dashboard.openTrades.length === 1 ? "trade" : "trades"}</span></div>
+    <section className="dash-trade-section"><div className="dash-trade-section-heading"><div><p>LIVE NOW</p><h2>Available to copy</h2></div><span>{dashboard.openTrades.length} {dashboard.openTrades.length === 1 ? "trade" : "trades"}{dashboard.openTrades.length > 1 ? " · swipe to see more" : ""}</span></div>
       {loading ? <article className="dash-panel dash-trade-empty">Loading live trades...</article> : dashboard.openTrades.length ? <div className="dash-trade-grid">{dashboard.openTrades.map((trade: CopyTradeSignal) => {
         const position = trade.participation ?? participationBySignal.get(trade.id);
         const amount = amounts[trade.id] ?? String(trade.minimumInvestment);

@@ -18,13 +18,22 @@ const marketRanges: Record<Range, { interval: string; limit: number }> = {
   "30D": { interval: "1d", limit: 30 },
 };
 
+async function fetchWithTimeout(url: string, parentSignal: AbortSignal, timeoutMs = 2000) {
+  const controller = new AbortController();
+  const abortFromParent = () => controller.abort();
+  parentSignal.addEventListener("abort", abortFromParent, { once: true });
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try { return await fetch(url, { cache: "no-store", signal: controller.signal, mode: "cors" }); }
+  finally { window.clearTimeout(timer); parentSignal.removeEventListener("abort", abortFromParent); }
+}
+
 async function fetchLiveCandles(range: Range, symbol: string, signal: AbortSignal): Promise<MarketData> {
   const config = marketRanges[range];
   const binanceHosts = ["https://api.binance.com", "https://api1.binance.com", "https://data-api.binance.vision"];
   for (const host of binanceHosts) {
     try {
       const params = new URLSearchParams({ symbol, interval: config.interval, limit: String(config.limit) });
-      const response = await fetch(`${host}/api/v3/klines?${params}`, { cache: "no-store", signal, mode: "cors" });
+      const response = await fetchWithTimeout(`${host}/api/v3/klines?${params}`, signal);
       if (!response.ok) continue;
       const rows: unknown = await response.json();
       if (!Array.isArray(rows)) continue;
@@ -36,14 +45,32 @@ async function fetchLiveCandles(range: Range, symbol: string, signal: AbortSigna
       });
       if (candles.length) return { symbol, candles, updatedAt: new Date().toISOString(), source: "Binance" };
     } catch (reason) {
-      if (reason instanceof DOMException && reason.name === "AbortError") throw reason;
+      if (signal.aborted) throw reason;
     }
   }
+
+  const bybitInterval = config.interval === "1m" ? "1" : config.interval === "30m" ? "30" : config.interval === "4h" ? "240" : "D";
+  const bybitParams = new URLSearchParams({ category: "spot", symbol, interval: bybitInterval, limit: String(config.limit) });
+  try {
+    const response = await fetchWithTimeout(`https://api.bybit.com/v5/market/kline?${bybitParams}`, signal);
+    if (response.ok) {
+      const payload = await response.json();
+      if (payload?.retCode === 0 && Array.isArray(payload?.result?.list)) {
+        const candles: Candle[] = payload.result.list.flatMap((row: unknown): Candle[] => {
+          if (!Array.isArray(row)) return [];
+          const [time, open, high, low, close] = row;
+          const candle = { time: Number(time), open: Number(open), high: Number(high), low: Number(low), close: Number(close) };
+          return Object.values(candle).every(Number.isFinite) ? [candle] : [];
+        }).reverse();
+        if (candles.length) return { symbol, candles, updatedAt: new Date().toISOString(), source: "Bybit" };
+      }
+    }
+  } catch (reason) { if (signal.aborted) throw reason; }
 
   const okxInterval = config.interval === "4h" ? "4H" : config.interval === "1d" ? "1D" : config.interval;
   const instId = symbol.endsWith("USDT") ? `${symbol.slice(0, -4)}-USDT` : symbol;
   const params = new URLSearchParams({ instId, bar: okxInterval, limit: String(config.limit) });
-  const response = await fetch(`https://www.okx.com/api/v5/market/candles?${params}`, { cache: "no-store", signal, mode: "cors" });
+  const response = await fetchWithTimeout(`https://www.okx.com/api/v5/market/candles?${params}`, signal);
   if (!response.ok) throw new Error(`Live ${symbol} data is unavailable. Check your connection and try again.`);
   const payload = await response.json();
   const candles: Candle[] = Array.isArray(payload?.data) ? payload.data.flatMap((row: unknown): Candle[] => {
@@ -177,6 +204,6 @@ export function BtcMarketChart({ availableBalance, onBalanceUpdated }: { availab
         : <form className="dash-chart-copy-form" onSubmit={(event) => { event.preventDefault(); void copyTrade(); }}><label>Investment<input aria-label="Investment amount" type="number" min={liveTrade.minimumInvestment} max={Math.min(liveTrade.maximumInvestment, availableBalance)} step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} required /></label><button type="submit" className="dash-chart-copy-button" disabled={busy || Number(amount) < liveTrade.minimumInvestment || Number(amount) > liveTrade.maximumInvestment || Number(amount) > availableBalance || secondsRemaining <= 0}>{busy ? <LoaderCircle size={15} className="dash-spin" /> : <Zap size={15} />}{busy ? "Copying…" : "Copy trade"}</button></form>}
       {tradeError && <p className="dash-chart-trade-error" role="alert">{tradeError}</p>}{tradeMessage && <p className="dash-chart-trade-message" role="status">{tradeMessage}</p>}
     </div>}
-    <div className="dash-market-footer"><div className="dash-market-ranges" aria-label="Chart period">{ranges.map((item) => <button type="button" key={item} className={range === item ? "active" : ""} onClick={() => setRange(item)}>{item}</button>)}</div><small>{data ? `Public ${data.source} data · Updated ${new Date(data.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : error ? `Retrying public ${displayPair} market sources` : "Connecting to public market data"}</small></div>
+    <div className="dash-market-footer"><div className="dash-market-ranges" aria-label="Chart period">{ranges.map((item) => <button type="button" key={item} className={range === item ? "active" : ""} onClick={() => setRange(item)}>{item}</button>)}</div><small>{marketData ? `Public ${marketData.source} data · Updated ${new Date(marketData.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : error ? `Retrying public ${displayPair} market sources` : "Connecting to public market data"}</small></div>
   </article>;
 }

@@ -607,3 +607,31 @@ body{overflow-x:hidden}@media(max-width:900px){.grid-lines>.container{grid-templ
 .dash-chart-trade-closed,.dash-chart-trade-error,.dash-chart-trade-message{margin:8px 0 0;font-size:9px;line-height:1.4}
 .dash-chart-trade-closed{color:#7D6B37}.dash-chart-trade-error{color:#B33B32}.dash-chart-trade-message{color:#18784F}
 .dash-spin{animation:dash-chart-spin .8s linear infinite}@keyframes dash-chart-spin{to{transform:rotate(360deg)}}
+
+/* Small dashboard labels are kept comfortably readable without changing the layout scale. */
+.dash-trading-info-copy>span{font-size:11px}
+.dash-trading-info-copy>small{font-size:10px}
+.dash-trading-info-status{font-size:10px}
+.dash-chart-trade-stats small{font-size:10px}
+.dash-chart-trade-caption{font-size:9px}
+.dash-chart-copy-form label,.dash-chart-trade-closed,.dash-chart-trade-error,.dash-chart-trade-message{font-size:10px}
+.dash-market-footer>small{font-size:9px}
+.dash-trade-section-heading>span{font-size:10px}
+.dash-trade-terms small,.dash-trade-mini-details>span,.dash-trade-mini-details strong{font-size:10px}
+.dash-trade-terms>div>span{font-size:9px}
+.dash-trade-join label,.dash-trade-join>small,.dash-trade-joined small{font-size:10px}
+.dash-trade-card h3{font-size:11px}
+@media(max-width:800px){
+  .dash-trading-info-copy>span{font-size:10px}
+  .dash-trading-info-copy>small{font-size:9px}
+  .dash-trading-info-status{font-size:9px}
+  .dash-trade-section-heading>span{max-width:58%;font-size:9px;text-align:right}
+  .dash-trade-grid{display:flex;gap:11px;overflow-x:auto;overflow-y:hidden;padding:1px 1px 10px;scroll-snap-type:x mandatory;scroll-padding-inline:1px;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:#D6C27A transparent}
+  .dash-trade-card{flex:0 0 min(86vw,360px);scroll-snap-align:start}
+  .dash-trade-terms small,.dash-trade-mini-details>span,.dash-trade-mini-details strong,.dash-trade-join label,.dash-trade-join>small,.dash-trade-joined small{font-size:10px}
+  .dash-trade-terms>div>span{font-size:9px}
+}
+.dash-app .dash-deposit-helper{font-size:12px;line-height:1.5}
+.dash-app .dash-status-label{font-size:10px}
+.dash-app .dash-panel-heading p{font-size:11px}
+.dash-app .dash-mobile-activity-row small{font-size:10px}
