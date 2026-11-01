@@ -21,6 +21,7 @@ export class User {
   @Prop({ default: false, index: true }) withdrawalsDisabled!: boolean;
   @Prop({ default: 0, min: 0 }) tradingBalance!: number;
   @Prop({ default: 0, min: 0 }) maturedPrincipalBalance!: number;
+  @Prop({ type: [{ amount: { type: Number, required: true }, unlockAt: { type: Date, required: true } }], default: [] }) lockedCapitalLots!: Array<{ amount: number; unlockAt: Date }>;
   @Prop({ default: 0, min: 0 }) referralBalance!: number;
   @Prop({ default: 0, min: 0 }) pendingTradingWithdrawals!: number;
   @Prop({ default: 0, min: 0 }) pendingMaturedWithdrawals!: number;

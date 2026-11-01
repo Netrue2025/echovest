@@ -33,5 +33,10 @@ export class FinanceSettings {
   @Prop({ default: '' }) depositInstructions!: string;
   @Prop({ default: 0, min: 0 }) minimumDeposit!: number;
   @Prop({ default: 0, min: 0 }) minimumWithdrawal!: number;
+  @Prop({ default: 60, min: 1, max: 3650 }) capitalLockDays!: number;
+  @Prop({ type: [Number], default: [1, 3, 5] }) withdrawalDays!: number[];
+  @Prop({ default: '09:00', match: /^([01]\d|2[0-3]):[0-5]\d$/ }) withdrawalWindowStart!: string;
+  @Prop({ default: '17:00', match: /^([01]\d|2[0-3]):[0-5]\d$/ }) withdrawalWindowEnd!: string;
+  @Prop({ default: 'Africa/Lagos' }) withdrawalTimezone!: string;
 }
 export const FinanceSettingsSchema = SchemaFactory.createForClass(FinanceSettings);

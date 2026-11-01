@@ -2,7 +2,8 @@ import { BadRequestException, ConflictException, Injectable, Logger, NotFoundExc
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
 import { AdminAudit } from '../admin/admin-audit.schema.js';
-import { FinanceTransaction } from '../finance/finance.schema.js';
+import { FinanceSettings, FinanceTransaction } from '../finance/finance.schema.js';
+import { assertWithdrawalWindow } from '../finance/withdrawal-window.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { ReferralsService } from '../referrals/referrals.service.js';
 import { User } from '../users/user.schema.js';
@@ -34,6 +35,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
     @InjectModel(CopyTradeSignal.name) private readonly signals: Model<CopyTradeSignal>,
     @InjectModel(TradePosition.name) private readonly positions: Model<TradePosition>,
     @InjectModel(FinanceTransaction.name) private readonly transactions: Model<FinanceTransaction>,
+    @InjectModel(FinanceSettings.name) private readonly financeSettings: Model<FinanceSettings>,
     @InjectModel(AdminAudit.name) private readonly audit: Model<AdminAudit>,
     private readonly notifications: NotificationsService,
     private readonly referrals: ReferralsService,
@@ -57,11 +59,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
     if (!Number.isFinite(endsAt.getTime()) || endsAt.getTime() <= startsAt.getTime()) throw new BadRequestException('Choose an end time after the scheduled start time.');
     if (endsAt.getTime() - startsAt.getTime() > 365 * DAY_MS) throw new BadRequestException('A trade schedule cannot run for more than 365 days.');
     if (input.minimumInvestment > input.maximumInvestment) throw new BadRequestException('Maximum investment must be at least the minimum investment.');
-    if (input.interestWindowStart >= input.interestWindowEnd) throw new BadRequestException('Interest withdrawal window must end after it starts on the same day.');
-    const days = [...new Set(input.interestWithdrawalDays)].sort();
-    if (days.length !== input.interestWithdrawalDays.length) throw new BadRequestException('Choose each interest withdrawal day only once.');
-    try { new Intl.DateTimeFormat('en', { timeZone: input.timezone }); } catch { throw new BadRequestException('Choose a valid timezone.'); }
-    const signal = await this.signals.create({ ...input, pair: input.pair.toUpperCase().replace(/\s/g, ''), startsAt, endsAt, interestWithdrawalDays: days, status: 'scheduled', createdBy: actor.email });
+    const signal = await this.signals.create({ ...input, pair: input.pair.toUpperCase().replace(/\s/g, ''), startsAt, endsAt, status: 'scheduled', createdBy: actor.email });
     await this.writeAudit(actor.id, actor.email, 'trades.signal.scheduled', String(signal._id), `${signal.pair} copy trade`, `Starts ${startsAt.toISOString()} and ends ${endsAt.toISOString()}; configured ROI ${signal.roiPercent}% over ${lockTermLabel(endsAt.getTime() - startsAt.getTime())}.`);
     return this.serializeSignal(signal);
   }
@@ -77,7 +75,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
 
   private serializeSignal(signal: CopyTradeSignal & { _id?: unknown }, copiedBy?: number, participation?: TradePosition | null) {
     const endsAt = scheduleEndsAt(signal);
-    return { id: String(signal._id), title: signal.title, pair: signal.pair, startsAt: signal.startsAt, endsAt, roiPercent: signal.roiPercent, lockDays: signalDuration(signal) / DAY_MS, minimumInvestment: signal.minimumInvestment, maximumInvestment: signal.maximumInvestment, interestWithdrawalDays: signal.interestWithdrawalDays, interestWindowStart: signal.interestWindowStart, interestWindowEnd: signal.interestWindowEnd, timezone: signal.timezone, status: signal.status, copiedBy: copiedBy ?? 0, participation: participation ? this.serializePosition(participation, signal) : null };
+    return { id: String(signal._id), title: signal.title, pair: signal.pair, startsAt: signal.startsAt, endsAt, roiPercent: signal.roiPercent, lockDays: signalDuration(signal) / DAY_MS, minimumInvestment: signal.minimumInvestment, maximumInvestment: signal.maximumInvestment, status: signal.status, copiedBy: copiedBy ?? 0, participation: participation ? this.serializePosition(participation, signal) : null };
   }
 
   private interestAt(position: TradePosition, signal: CopyTradeSignal, now = new Date()) {
@@ -91,7 +89,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
 
   private serializePosition(position: TradePosition, signal: CopyTradeSignal) {
     const accrued = this.interestAt(position, signal);
-    return { id: String(position._id), signalId: String(signal._id), pair: signal.pair, title: signal.title, principal: position.principal, status: position.status, joinedAt: position.joinedAt, stoppedAt: position.stoppedAt ?? null, principalReturnedAt: position.principalReturnedAt ?? null, maturesAt: maturesAt(position, signal), roiPercent: signal.roiPercent, lockDays: signalDuration(signal) / DAY_MS, interestAccrued: accrued, interestClaimed: position.claimedInterest, interestAvailable: Math.max(0, accrued - position.claimedInterest), interestWithdrawalDays: signal.interestWithdrawalDays, interestWindowStart: signal.interestWindowStart, interestWindowEnd: signal.interestWindowEnd, timezone: signal.timezone };
+    return { id: String(position._id), signalId: String(signal._id), pair: signal.pair, title: signal.title, principal: position.principal, status: position.status, joinedAt: position.joinedAt, stoppedAt: position.stoppedAt ?? null, principalReturnedAt: position.principalReturnedAt ?? null, capitalUnlockAt: position.capitalUnlockAt ?? null, maturesAt: maturesAt(position, signal), roiPercent: signal.roiPercent, lockDays: signalDuration(signal) / DAY_MS, interestAccrued: accrued, interestClaimed: position.claimedInterest, interestAvailable: Math.max(0, accrued - position.claimedInterest) };
   }
 
   async publishDueSignals() {
@@ -127,7 +125,8 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
     const positionMap = new Map(positions.map((item) => [String(item.signalId), item]));
     const activeSignals = signals.map((signal) => this.serializeSignal(signal, undefined, positionMap.get(String(signal._id)) ?? null));
     const pastPositions = positions.flatMap((position) => { const signal = signalMap.get(String(position.signalId)); return signal ? [this.serializePosition(position, signal)] : []; });
-    return { openTrades: activeSignals, nextTrade: nextSignal ? this.serializeSignal(nextSignal) : null, positions: pastPositions };
+    const config = await this.financeSettings.findOne({ key: 'platform' }).lean().exec();
+    return { openTrades: activeSignals, nextTrade: nextSignal ? this.serializeSignal(nextSignal) : null, positions: pastPositions, withdrawalSettings: { withdrawalDays: config?.withdrawalDays ?? [1, 3, 5], withdrawalWindowStart: config?.withdrawalWindowStart ?? '09:00', withdrawalWindowEnd: config?.withdrawalWindowEnd ?? '17:00', withdrawalTimezone: config?.withdrawalTimezone ?? 'Africa/Lagos' } };
   }
 
   async adminSignals() {
@@ -152,13 +151,20 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
         if (await this.positions.exists({ userId: new Types.ObjectId(userId), signalId: new Types.ObjectId(signalId) }).session(session)) throw new ConflictException('You already joined or stopped this trade. You cannot join it again.');
         const openSignal = await this.signals.findOneAndUpdate({ _id: signalId, status: 'open' }, { $inc: { currentCopiers: 1 } }, { new: true, session }).exec();
         if (!openSignal) throw new ConflictException('This copy trade has just closed to new participants.');
-        const investor = await this.users.findOne({ _id: userId, role: 'user', isDisabled: { $ne: true }, $expr: { $gte: [{ $subtract: [{ $ifNull: ['$tradingBalance', 0] }, { $add: [{ $ifNull: ['$pendingTradingWithdrawals', 0] }, { $ifNull: ['$pendingMaturedWithdrawals', 0] }] }] }, amount] } }).session(session).select('tradingBalance maturedPrincipalBalance').lean().exec();
+        const investor = await this.users.findOne({ _id: userId, role: 'user', isDisabled: { $ne: true }, $expr: { $gte: [{ $subtract: [{ $ifNull: ['$tradingBalance', 0] }, { $add: [{ $ifNull: ['$pendingTradingWithdrawals', 0] }, { $ifNull: ['$pendingMaturedWithdrawals', 0] }] }] }, amount] } }).session(session).select('tradingBalance maturedPrincipalBalance lockedCapitalLots').lean().exec();
         if (!investor) throw new BadRequestException('Your available investment balance is too low for this amount.');
         const maturedToReinvest = Math.min(investor.maturedPrincipalBalance ?? 0, amount);
+        let lockedToReinvest = amount - maturedToReinvest;
+        const remainingLots: Array<{ amount: number; unlockAt: Date }> = [];
+        for (const lot of [...(investor.lockedCapitalLots ?? [])].sort((a, b) => new Date(a.unlockAt).getTime() - new Date(b.unlockAt).getTime())) {
+          const used = Math.min(lockedToReinvest, lot.amount);
+          lockedToReinvest -= used;
+          if (lot.amount - used > 1e-8) remainingLots.push({ amount: lot.amount - used, unlockAt: new Date(lot.unlockAt) });
+        }
         const investorFilter: Record<string, unknown> = { _id: userId, tradingBalance: investor.tradingBalance };
         if (investor.maturedPrincipalBalance === undefined) investorFilter.maturedPrincipalBalance = { $exists: false };
         else investorFilter.maturedPrincipalBalance = investor.maturedPrincipalBalance;
-        const debited = await this.users.updateOne(investorFilter, { $inc: { tradingBalance: -amount, ...(maturedToReinvest > 0 ? { maturedPrincipalBalance: -maturedToReinvest } : {}) } }, { session }).exec();
+        const debited = await this.users.updateOne(investorFilter, { $inc: { tradingBalance: -amount, ...(maturedToReinvest > 0 ? { maturedPrincipalBalance: -maturedToReinvest } : {}) }, $set: { lockedCapitalLots: remainingLots } }, { session }).exec();
         if (!debited.matchedCount) throw new ConflictException('Your investment balance changed. Refresh and try again.');
         const created = await this.positions.create([{ userId: new Types.ObjectId(userId), signalId: new Types.ObjectId(signalId), principal: amount, status: 'active', joinedAt: new Date(), claimedInterest: 0 }], { session });
         position = created[0];
@@ -176,26 +182,19 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
     try {
       await session.withTransaction(async () => {
         const now = new Date();
-        position = await this.positions.findOneAndUpdate({ _id: positionId, userId: new Types.ObjectId(userId), status: 'active', principalReturnedAt: null }, { $set: { status: 'stopped', stoppedAt: now, principalReturnedAt: now } }, { new: true, session }).exec();
+        const settings = await this.financeSettings.findOne({ key: 'platform' }).session(session).lean().exec();
+        const capitalUnlockAt = new Date(now.getTime() + (settings?.capitalLockDays ?? 60) * DAY_MS);
+        position = await this.positions.findOneAndUpdate({ _id: positionId, userId: new Types.ObjectId(userId), status: 'active', principalReturnedAt: null }, { $set: { status: 'stopped', stoppedAt: now, principalReturnedAt: now, capitalUnlockAt } }, { new: true, session }).exec();
         if (!position) throw new ConflictException('This trade is already stopped or completed.');
         signal = await this.signals.findById(position.signalId).session(session).exec() as CopyTradeSignal;
         if (!signal) throw new NotFoundException('Copy trade details not found.');
-        const credited = await this.users.updateOne({ _id: position.userId }, { $inc: { tradingBalance: position.principal, maturedPrincipalBalance: position.principal } }, { session }).exec();
+        const credited = await this.users.updateOne({ _id: position.userId }, { $inc: { tradingBalance: position.principal, maturedPrincipalBalance: 0 }, $push: { lockedCapitalLots: { amount: position.principal, unlockAt: capitalUnlockAt } } }, { session }).exec();
         if (!credited.matchedCount) throw new NotFoundException('Could not return the trade principal.');
-        await this.writeAudit(userId, 'system', 'trades.position.stopped', positionId, signal.pair, `${position.principal} USD principal returned immediately. ROI finalized at the stop time and remains available in the profit balance.`, session);
+        await this.writeAudit(userId, 'system', 'trades.position.stopped', positionId, signal.pair, `${position.principal} USD principal returned to the investment balance and locked for withdrawal until ${capitalUnlockAt.toISOString()}. ROI finalized at the stop time.`, session);
       });
     } finally { await session.endSession(); }
     if (!position) throw new ConflictException('This trade could not be stopped. Refresh and try again.');
     return this.serializePosition(position, signal);
-  }
-
-  private localDayAndTime(date: Date, timezone: string) {
-    const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date);
-    const weekday = parts.find((part) => part.type === 'weekday')?.value ?? '';
-    const day = ({ Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 } as Record<string, number>)[weekday];
-    const hour = parts.find((part) => part.type === 'hour')?.value ?? '00';
-    const minute = parts.find((part) => part.type === 'minute')?.value ?? '00';
-    return { day, time: `${hour}:${minute}` };
   }
 
   async withdrawInterest(userId: string, positionId: string, amount: number, destinationAddress: string, network: string) {
@@ -213,8 +212,8 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
         const activePosition = await this.positions.exists({ userId: new Types.ObjectId(userId), status: 'active' }).session(session).exec();
         if (activePosition) throw new BadRequestException('Close all active copy trades before requesting a profit withdrawal.');
         const now = new Date();
-        const local = this.localDayAndTime(now, signal.timezone);
-        if (!signal.interestWithdrawalDays.includes(local.day) || local.time < signal.interestWindowStart || local.time > signal.interestWindowEnd) throw new BadRequestException(`Interest can be requested ${signal.interestWithdrawalDays.map((day) => ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day]).join(', ')} between ${signal.interestWindowStart} and ${signal.interestWindowEnd} (${signal.timezone}).`);
+        const withdrawalSettings = await this.financeSettings.findOne({ key: 'platform' }).session(session).lean().exec();
+        assertWithdrawalWindow(withdrawalSettings ?? {}, now);
         const available = Math.max(0, this.interestAt(position, signal, now) - position.claimedInterest);
         if (amount < 0.01 || amount > available + 1e-8) throw new BadRequestException(`Available accrued interest is ${available.toFixed(8)} USD.`);
         const updatedPosition = await this.positions.findOneAndUpdate({ _id: positionId, claimedInterest: position.claimedInterest }, { $inc: { claimedInterest: amount } }, { new: true, session }).exec();
@@ -244,9 +243,12 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
         await session.withTransaction(async () => {
           const settled = await this.positions.findOneAndUpdate({ _id: item._id, status: { $in: ['active', 'stopped'] }, principalReturnedAt: null }, { $set: { status: 'matured', principalReturnedAt: now } }, { new: true, session }).exec();
           if (!settled) return;
-          const credited = await this.users.updateOne({ _id: settled.userId }, { $inc: { tradingBalance: settled.principal, maturedPrincipalBalance: settled.principal } }, { session }).exec();
+          const settings = await this.financeSettings.findOne({ key: 'platform' }).session(session).lean().exec();
+          const capitalUnlockAt = new Date(now.getTime() + (settings?.capitalLockDays ?? 60) * DAY_MS);
+          await this.positions.updateOne({ _id: settled._id }, { $set: { capitalUnlockAt } }, { session }).exec();
+          const credited = await this.users.updateOne({ _id: settled.userId }, { $inc: { tradingBalance: settled.principal, maturedPrincipalBalance: 0 }, $push: { lockedCapitalLots: { amount: settled.principal, unlockAt: capitalUnlockAt } } }, { session }).exec();
           if (!credited.matchedCount) throw new NotFoundException('Could not return the matured trade principal.');
-          await this.writeAudit(String(settled.userId), 'system', 'trades.position.matured', String(settled._id), signal.pair, `${settled.principal} USD principal returned to available investment balance.`, session);
+          await this.writeAudit(String(settled.userId), 'system', 'trades.position.matured', String(settled._id), signal.pair, `${settled.principal} USD principal returned to the investment balance and locked for withdrawal until ${capitalUnlockAt.toISOString()}.`, session);
         });
       } finally { await session.endSession(); }
     }

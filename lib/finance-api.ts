@@ -31,6 +31,7 @@ export function financeStatusLabel(status: string): string {
   return status.replaceAll('_', ' ');
 }
 
-export type FinanceSettings = { depositWalletAddress: string; depositNetwork: string; depositInstructions: string; minimumDeposit: number; minimumWithdrawal: number };
+export type WithdrawalPolicy = { capitalLockDays: number; withdrawalDays: number[]; withdrawalWindowStart: string; withdrawalWindowEnd: string; withdrawalTimezone: string };
+export type FinanceSettings = { depositWalletAddress: string; depositNetwork: string; depositInstructions: string; minimumDeposit: number; minimumWithdrawal: number } & WithdrawalPolicy;
 export type FinanceTransaction = { id: string; type: 'deposit' | 'withdrawal'; amount: number; balanceType: 'trading' | 'referral'; sourceType?: 'trade_interest'; maturedPrincipalWithdrawal?: boolean; status: string; txid: string; network: string; destinationAddress: string; rejectionReason: string; createdAt?: string };
-export type FinanceSummary = { balances: { trading: number; referral: number; availableTrading: number; maturedPrincipal?: number; availableMaturedPrincipal?: number; availableReferral: number; totalProfitEarned?: number; availableProfit?: number }; transactions: FinanceTransaction[] };
+export type FinanceSummary = { balances: { trading: number; referral: number; availableTrading: number; maturedPrincipal?: number; availableMaturedPrincipal?: number; lockedCapital?: number; nextCapitalUnlockAt?: string | null; capitalLockDays?: number; availableReferral: number; totalProfitEarned?: number; availableProfit?: number }; transactions: FinanceTransaction[] };

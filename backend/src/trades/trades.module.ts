@@ -4,7 +4,7 @@ import { AdminAccessGuard } from '../admin/admin-access.guard.js';
 import { AdminAudit, AdminAuditSchema } from '../admin/admin-audit.schema.js';
 import { OriginGuard } from '../auth/origin.guard.js';
 import { SessionGuard } from '../auth/session.guard.js';
-import { FinanceTransaction, FinanceTransactionSchema } from '../finance/finance.schema.js';
+import { FinanceSettings, FinanceSettingsSchema, FinanceTransaction, FinanceTransactionSchema } from '../finance/finance.schema.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
 import { ReferralsModule } from '../referrals/referrals.module.js';
 import { SessionsModule } from '../sessions/sessions.module.js';
@@ -20,6 +20,7 @@ import { TradesService } from './trades.service.js';
     { name: CopyTradeSignal.name, schema: CopyTradeSignalSchema },
     { name: TradePosition.name, schema: TradePositionSchema },
     { name: FinanceTransaction.name, schema: FinanceTransactionSchema },
+    { name: FinanceSettings.name, schema: FinanceSettingsSchema },
     { name: AdminAudit.name, schema: AdminAuditSchema },
   ]), UsersModule, SessionsModule, NotificationsModule, ReferralsModule],
   controllers: [TradesController],

@@ -7,6 +7,7 @@ import { FinanceSettings, FinanceTransaction } from './finance.schema.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { ReferralsService } from '../referrals/referrals.service.js';
 import { CopyTradeSignal, TradePosition } from '../trades/trade.schema.js';
+import { assertWithdrawalWindow } from './withdrawal-window.js';
 
 type Actor = { id: string; email: string };
 @Injectable()
@@ -14,14 +15,18 @@ export class FinanceService {
   private readonly logger = new Logger(FinanceService.name);
   constructor(@InjectModel(User.name) private readonly users: Model<User>, @InjectModel(FinanceTransaction.name) private readonly transactions: Model<FinanceTransaction>, @InjectModel(FinanceSettings.name) private readonly settings: Model<FinanceSettings>, @InjectModel(AdminAudit.name) private readonly audit: Model<AdminAudit>, @InjectModel(TradePosition.name) private readonly tradePositions: Model<TradePosition>, @InjectModel(CopyTradeSignal.name) private readonly tradeSignals: Model<CopyTradeSignal>, private readonly notifications: NotificationsService, private readonly referrals: ReferralsService) {}
   private async config() { return await this.settings.findOneAndUpdate({ key: 'platform' }, { $setOnInsert: { key: 'platform' } }, { upsert: true, new: true, setDefaultsOnInsert: true }).lean().exec(); }
-  async publicSettings() { const s = await this.config(); return { depositWalletAddress: s?.depositWalletAddress ?? '', depositNetwork: s?.depositNetwork ?? '', depositInstructions: s?.depositInstructions ?? '', minimumDeposit: s?.minimumDeposit ?? 0, minimumWithdrawal: s?.minimumWithdrawal ?? 0 }; }
-  async updateSettings(input: { depositWalletAddress: string; depositNetwork: string; depositInstructions: string; minimumDeposit: number; minimumWithdrawal: number }, actor: Actor) {
-    const result = await this.settings.findOneAndUpdate({ key: 'platform' }, { $set: { ...input, depositWalletAddress: input.depositWalletAddress.trim(), depositNetwork: input.depositNetwork.trim(), depositInstructions: input.depositInstructions.trim() } }, { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }).lean().exec();
-    await this.audit.create({ actorId: actor.id, actorEmail: actor.email, action: 'finance.settings.updated', targetType: 'finance', targetId: 'platform', targetLabel: 'Finance settings', detail: `Minimum deposit ${input.minimumDeposit}; minimum withdrawal ${input.minimumWithdrawal}.` });
+  async publicSettings() { const s = await this.config(); return { depositWalletAddress: s?.depositWalletAddress ?? '', depositNetwork: s?.depositNetwork ?? '', depositInstructions: s?.depositInstructions ?? '', minimumDeposit: s?.minimumDeposit ?? 0, minimumWithdrawal: s?.minimumWithdrawal ?? 0, capitalLockDays: s?.capitalLockDays ?? 60, withdrawalDays: s?.withdrawalDays ?? [1, 3, 5], withdrawalWindowStart: s?.withdrawalWindowStart ?? '09:00', withdrawalWindowEnd: s?.withdrawalWindowEnd ?? '17:00', withdrawalTimezone: s?.withdrawalTimezone ?? 'Africa/Lagos' }; }
+  async updateSettings(input: { depositWalletAddress: string; depositNetwork: string; depositInstructions: string; minimumDeposit: number; minimumWithdrawal: number; capitalLockDays: number; withdrawalDays: number[]; withdrawalWindowStart: string; withdrawalWindowEnd: string; withdrawalTimezone: string }, actor: Actor) {
+    if (input.withdrawalWindowStart >= input.withdrawalWindowEnd) throw new BadRequestException('Withdrawal window must end after it starts on the same day.');
+    if (new Set(input.withdrawalDays).size !== input.withdrawalDays.length) throw new BadRequestException('Choose each withdrawal day only once.');
+    try { new Intl.DateTimeFormat('en', { timeZone: input.withdrawalTimezone }); } catch { throw new BadRequestException('Choose a valid withdrawal timezone.'); }
+    const result = await this.settings.findOneAndUpdate({ key: 'platform' }, { $set: { ...input, depositWalletAddress: input.depositWalletAddress.trim(), depositNetwork: input.depositNetwork.trim(), depositInstructions: input.depositInstructions.trim(), withdrawalTimezone: input.withdrawalTimezone.trim() } }, { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }).lean().exec();
+    await this.audit.create({ actorId: actor.id, actorEmail: actor.email, action: 'finance.settings.updated', targetType: 'finance', targetId: 'platform', targetLabel: 'Finance settings', detail: `Minimum deposit ${input.minimumDeposit}; minimum withdrawal ${input.minimumWithdrawal}; capital lock ${input.capitalLockDays} days; withdrawal window ${input.withdrawalDays.join(',')} ${input.withdrawalWindowStart}-${input.withdrawalWindowEnd} ${input.withdrawalTimezone}.` });
     return result;
   }
   async summary(userId: string) {
-    const [user, transactions, positions] = await Promise.all([this.users.findById(userId).select('tradingBalance maturedPrincipalBalance referralBalance pendingTradingWithdrawals pendingMaturedWithdrawals pendingReferralWithdrawals').lean().exec(), this.listUserTransactions(userId), this.tradePositions.find({ userId: new Types.ObjectId(userId) }).select('signalId principal joinedAt stoppedAt claimedInterest principalReturnedAt').lean().exec()]);
+    await this.settleMaturedCapital(userId);
+    const [user, transactions, positions, settings] = await Promise.all([this.users.findById(userId).select('tradingBalance maturedPrincipalBalance lockedCapitalLots referralBalance pendingTradingWithdrawals pendingMaturedWithdrawals pendingReferralWithdrawals').lean().exec(), this.listUserTransactions(userId), this.tradePositions.find({ userId: new Types.ObjectId(userId) }).select('signalId principal joinedAt stoppedAt claimedInterest principalReturnedAt').lean().exec(), this.config()]);
     if (!user) throw new NotFoundException('Account not found.');
     const trading = user.tradingBalance ?? 0, referral = user.referralBalance ?? 0;
     let maturedPrincipal = user.maturedPrincipalBalance ?? 0;
@@ -46,7 +51,29 @@ export class FinanceService {
     }, 0);
     const profitAlreadyRequested = positions.reduce((total, position) => total + (position.claimedInterest ?? 0), 0);
     const pendingMatured = user.pendingMaturedWithdrawals ?? 0;
-    return { balances: { trading, referral, availableTrading: Math.max(0, trading - (user.pendingTradingWithdrawals ?? 0) - pendingMatured), maturedPrincipal, availableMaturedPrincipal: Math.max(0, maturedPrincipal - pendingMatured), availableReferral: Math.max(0, referral - (user.pendingReferralWithdrawals ?? 0)), totalProfitEarned, availableProfit: Math.max(0, totalProfitEarned - profitAlreadyRequested) }, transactions };
+    const lockedCapitalLots = user.lockedCapitalLots ?? [];
+    const lockedCapital = lockedCapitalLots.reduce((total, lot) => total + lot.amount, 0);
+    const nextCapitalUnlockAt = lockedCapitalLots.reduce<Date | null>((earliest, lot) => !earliest || new Date(lot.unlockAt).getTime() < earliest.getTime() ? new Date(lot.unlockAt) : earliest, null);
+    return { balances: { trading, referral, availableTrading: Math.max(0, trading - (user.pendingTradingWithdrawals ?? 0) - pendingMatured), maturedPrincipal, availableMaturedPrincipal: Math.max(0, maturedPrincipal - pendingMatured), lockedCapital, nextCapitalUnlockAt, capitalLockDays: settings?.capitalLockDays ?? 60, availableReferral: Math.max(0, referral - (user.pendingReferralWithdrawals ?? 0)), totalProfitEarned, availableProfit: Math.max(0, totalProfitEarned - profitAlreadyRequested) }, transactions };
+  }
+  async settleMaturedCapital(userId?: string) {
+    const now = new Date();
+    const candidates = await this.users.find({ ...(userId ? { _id: userId } : {}), lockedCapitalLots: { $elemMatch: { unlockAt: { $lte: now } } } }).select('_id').limit(300).lean().exec();
+    for (const candidate of candidates) {
+      const session = await this.users.db.startSession();
+      try {
+        await session.withTransaction(async () => {
+          const user = await this.users.findById(candidate._id).session(session).select('lockedCapitalLots').lean().exec();
+          if (!user) return;
+          const lots = user.lockedCapitalLots ?? [];
+          const matured = lots.filter((lot) => new Date(lot.unlockAt).getTime() <= now.getTime());
+          if (!matured.length) return;
+          const remaining = lots.filter((lot) => new Date(lot.unlockAt).getTime() > now.getTime());
+          const amount = matured.reduce((total, lot) => total + lot.amount, 0);
+          await this.users.updateOne({ _id: candidate._id }, { $set: { lockedCapitalLots: remaining }, $inc: { maturedPrincipalBalance: amount } }, { session }).exec();
+        });
+      } finally { await session.endSession(); }
+    }
   }
   async listUserTransactions(userId: string) {
     const docs = await this.transactions.find({ userId: new Types.ObjectId(userId) }).sort({ createdAt: -1 }).limit(100).lean().exec();
@@ -63,8 +90,10 @@ export class FinanceService {
     catch (error) { if (typeof error === 'object' && error !== null && 'code' in error && error.code === 11000) throw new ConflictException('This transaction hash has already been submitted.'); throw error; }
   }
   async requestWithdrawal(userId: string, input: { amount: number; balanceType: 'trading' | 'referral'; destinationAddress: string; network: string }) {
+    await this.settleMaturedCapital(userId);
     const [s, user] = await Promise.all([this.config(), this.users.findById(userId).select('+role isDisabled withdrawalsDisabled tradingBalance maturedPrincipalBalance referralBalance pendingTradingWithdrawals pendingMaturedWithdrawals pendingReferralWithdrawals').lean().exec()]);
     if (!user || user.isDisabled || user.withdrawalsDisabled) throw new ForbiddenException('Withdrawals are disabled for this account.');
+    assertWithdrawalWindow(s ?? {}, new Date());
     if (input.amount < (s?.minimumWithdrawal ?? 0)) throw new BadRequestException(`The minimum withdrawal is ${s?.minimumWithdrawal ?? 0} USD.`);
     const isMaturedPrincipal = input.balanceType === 'trading';
     const balanceField = isMaturedPrincipal ? 'maturedPrincipalBalance' : 'referralBalance';
@@ -102,7 +131,9 @@ export class FinanceService {
         const changed = await this.transactions.findOneAndUpdate({ _id: id, status: validCurrent }, { $set: { status: decision, rejectionReason: decision === 'rejected' ? reason!.trim() : '', reviewedBy: actor.email, reviewedAt: new Date() } }, { new: true, session }).exec();
         if (!changed) throw new ConflictException('This request has already been reviewed.');
         if (transaction.type === 'deposit' && decision === 'approved') {
-          const credited = await this.users.updateOne({ _id: transaction.userId }, { $inc: { tradingBalance: transaction.amount } }, { session }).exec();
+          const settings = await this.settings.findOne({ key: 'platform' }).session(session).lean().exec();
+          const capitalUnlockAt = new Date(Date.now() + (settings?.capitalLockDays ?? 60) * 24 * 60 * 60 * 1000);
+          const credited = await this.users.updateOne({ _id: transaction.userId }, { $inc: { tradingBalance: transaction.amount }, $push: { lockedCapitalLots: { amount: transaction.amount, unlockAt: capitalUnlockAt } } }, { session }).exec();
           if (!credited.matchedCount) throw new NotFoundException('The account for this deposit no longer exists.');
           referralPayouts.push(...await this.referrals.accrueDeposit(String(transaction.userId), String(transaction._id), transaction.amount, session));
         }

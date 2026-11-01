@@ -16,10 +16,6 @@ export class CopyTradeSignal {
   @Prop({ min: 1, max: 365 }) lockDays?: number;
   @Prop({ required: true, min: 0.01 }) minimumInvestment!: number;
   @Prop({ required: true, min: 0.01 }) maximumInvestment!: number;
-  @Prop({ type: [Number], required: true }) interestWithdrawalDays!: number[];
-  @Prop({ required: true, match: /^([01]\d|2[0-3]):[0-5]\d$/ }) interestWindowStart!: string;
-  @Prop({ required: true, match: /^([01]\d|2[0-3]):[0-5]\d$/ }) interestWindowEnd!: string;
-  @Prop({ required: true, default: 'UTC' }) timezone!: string;
   @Prop({ default: 0, min: 0 }) currentCopiers!: number;
   @Prop({ required: true, enum: ['scheduled', 'open', 'completed', 'cancelled'], default: 'scheduled', index: true }) status!: 'scheduled' | 'open' | 'completed' | 'cancelled';
   @Prop({ required: true }) createdBy!: string;
@@ -39,6 +35,7 @@ export class TradePosition {
   @Prop({ required: true }) joinedAt!: Date;
   @Prop({ type: Date, default: null }) stoppedAt?: Date | null;
   @Prop({ type: Date, default: null }) principalReturnedAt?: Date | null;
+  @Prop({ type: Date, default: null }) capitalUnlockAt?: Date | null;
   @Prop({ default: 0, min: 0 }) claimedInterest!: number;
 }
 export const TradePositionSchema = SchemaFactory.createForClass(TradePosition);
