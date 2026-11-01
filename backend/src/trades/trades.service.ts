@@ -214,6 +214,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
         const now = new Date();
         const withdrawalSettings = await this.financeSettings.findOne({ key: 'platform' }).session(session).lean().exec();
         assertWithdrawalWindow(withdrawalSettings ?? {}, now);
+        if (amount < (withdrawalSettings?.minimumWithdrawal ?? 0)) throw new BadRequestException(`The minimum withdrawal is ${withdrawalSettings?.minimumWithdrawal ?? 0} USD.`);
         const available = Math.max(0, this.interestAt(position, signal, now) - position.claimedInterest);
         if (amount < 0.01 || amount > available + 1e-8) throw new BadRequestException(`Available accrued interest is ${available.toFixed(8)} USD.`);
         const updatedPosition = await this.positions.findOneAndUpdate({ _id: positionId, claimedInterest: position.claimedInterest }, { $inc: { claimedInterest: amount } }, { new: true, session }).exec();
