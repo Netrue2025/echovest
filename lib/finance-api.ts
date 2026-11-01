@@ -32,5 +32,5 @@ export function financeStatusLabel(status: string): string {
 }
 
 export type FinanceSettings = { depositWalletAddress: string; depositNetwork: string; depositInstructions: string; minimumDeposit: number; minimumWithdrawal: number };
-export type FinanceTransaction = { id: string; type: 'deposit' | 'withdrawal'; amount: number; balanceType: 'trading' | 'referral'; status: string; txid: string; network: string; destinationAddress: string; rejectionReason: string; createdAt?: string };
-export type FinanceSummary = { balances: { trading: number; referral: number; availableTrading: number; availableReferral: number }; transactions: FinanceTransaction[] };
+export type FinanceTransaction = { id: string; type: 'deposit' | 'withdrawal'; amount: number; balanceType: 'trading' | 'referral'; sourceType?: 'trade_interest'; status: string; txid: string; network: string; destinationAddress: string; rejectionReason: string; createdAt?: string };
+export type FinanceSummary = { balances: { trading: number; referral: number; availableTrading: number; availableReferral: number; totalProfitEarned?: number; availableProfit?: number }; transactions: FinanceTransaction[] };

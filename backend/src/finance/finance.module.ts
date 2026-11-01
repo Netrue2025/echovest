@@ -12,7 +12,7 @@ import { FinanceService } from './finance.service.js';
 import { FinanceSettings, FinanceSettingsSchema, FinanceTransaction, FinanceTransactionSchema } from './finance.schema.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
 import { ReferralsModule } from '../referrals/referrals.module.js';
-import { TradePosition, TradePositionSchema } from '../trades/trade.schema.js';
+import { CopyTradeSignal, CopyTradeSignalSchema, TradePosition, TradePositionSchema } from '../trades/trade.schema.js';
 
-@Module({ imports: [MongooseModule.forFeature([{ name: User.name, schema: UserSchema }, { name: FinanceTransaction.name, schema: FinanceTransactionSchema }, { name: FinanceSettings.name, schema: FinanceSettingsSchema }, { name: AdminAudit.name, schema: AdminAuditSchema }, { name: TradePosition.name, schema: TradePositionSchema }]), UsersModule, SessionsModule, NotificationsModule, ReferralsModule], controllers: [FinanceController], providers: [FinanceService, SessionGuard, AdminAccessGuard, OriginGuard] })
+@Module({ imports: [MongooseModule.forFeature([{ name: User.name, schema: UserSchema }, { name: FinanceTransaction.name, schema: FinanceTransactionSchema }, { name: FinanceSettings.name, schema: FinanceSettingsSchema }, { name: AdminAudit.name, schema: AdminAuditSchema }, { name: TradePosition.name, schema: TradePositionSchema }, { name: CopyTradeSignal.name, schema: CopyTradeSignalSchema }]), UsersModule, SessionsModule, NotificationsModule, ReferralsModule], controllers: [FinanceController], providers: [FinanceService, SessionGuard, AdminAccessGuard, OriginGuard] })
 export class FinanceModule {}

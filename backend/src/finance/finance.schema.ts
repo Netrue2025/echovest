@@ -18,6 +18,7 @@ export class FinanceTransaction {
   @Prop({ default: '' }) reviewedBy!: string;
   @Prop() reviewedAt?: Date;
   @Prop({ enum: ['trade_interest'] }) sourceType?: 'trade_interest';
+  @Prop({ default: false }) profitLedger?: boolean;
   @Prop({ type: Types.ObjectId, default: null }) tradePositionId?: Types.ObjectId | null;
 }
 export const FinanceTransactionSchema = SchemaFactory.createForClass(FinanceTransaction);

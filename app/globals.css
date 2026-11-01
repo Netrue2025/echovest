@@ -517,3 +517,21 @@ body{overflow-x:hidden}@media(max-width:900px){.grid-lines>.container{grid-templ
 @media(max-width:800px){.dash-trade-grid{grid-template-columns:1fr}.dash-trade-card{padding:15px}.dash-position-values{grid-template-columns:repeat(2,minmax(0,1fr))}.dash-interest-claim{grid-template-columns:1fr 110px}.dash-interest-claim>div{grid-column:1/-1}.dash-interest-claim>button{grid-column:1/-1}.dash-trade-disclosure{font-size:11px}.dash-trade-section-heading h2{font-size:16px}}
 
 .dash-interest-claim{grid-template-columns:repeat(2,minmax(0,1fr))}.dash-interest-claim>div,.dash-interest-claim>button{grid-column:1/-1}.dash-interest-claim>label{min-width:0}.dash-interest-claim input{font-size:10px}@media(max-width:800px){.dash-interest-claim{grid-template-columns:1fr}.dash-interest-claim>div,.dash-interest-claim>button{grid-column:auto}}
+
+.dash-trading-info{position:relative;margin-top:16px;padding:17px 18px;display:grid;grid-template-columns:42px minmax(0,1fr) auto;align-items:center;gap:3px 13px;border:1px solid #F0E2B3;border-radius:16px;background:linear-gradient(110deg,#FFFAE9,#FFF6DF);box-shadow:0 5px 16px #5B481008}
+.dash-trading-info-icon{width:40px;height:40px;grid-row:span 2;display:grid;place-items:center;border-radius:12px;background:#F0B90B1C;color:#9A7100}
+.dash-trading-info-copy{min-width:0;display:grid;gap:4px}
+.dash-trading-info-copy>span{color:#77716A;font-size:12px}
+.dash-trading-info-copy>strong{overflow:hidden;color:#A16E00;font-size:15px;text-overflow:ellipsis;white-space:nowrap}
+.dash-trading-info-copy>small{color:#7D7B77;font-size:10px}
+.dash-trading-info-status{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:999px;background:#FFFFFFC9;color:#6B7076;font-size:10px;font-weight:750;white-space:nowrap}
+.dash-trading-info-status i{width:7px;height:7px;border-radius:50%;background:#A9ADB2}
+.dash-trading-info-status.live{color:#07865D}.dash-trading-info-status.live i{background:#00A878;box-shadow:0 0 0 3px #00A87820}
+.dash-trading-info-note{grid-column:2/-1;margin:8px 0 0;color:#706F6A;font-size:10px;line-height:1.5}
+.dash-trading-info>a{grid-column:2/-1;justify-self:start;margin-top:5px;display:inline-flex;align-items:center;gap:5px;color:#856300;text-decoration:none;font-size:10px;font-weight:750}
+.dash-profit-withdraw-card{margin-bottom:14px;padding:15px 17px;display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #EDE2BC;border-radius:13px;background:linear-gradient(105deg,#FFFBEE,#FFF7E1)}
+.dash-profit-withdraw-card>div{min-width:0;display:grid;gap:4px}.dash-profit-withdraw-card span{color:#716C60;font-size:11px}.dash-profit-withdraw-card strong{color:#1E2329;font-size:20px}.dash-profit-withdraw-card small{color:#7F7B71;font-size:10px;line-height:1.45}.dash-profit-withdraw-card>a{display:inline-flex;align-items:center;gap:5px;color:#856300;text-decoration:none;font-size:10px;font-weight:750;white-space:nowrap}
+.dash-mobile-balance-caption{position:relative;z-index:1;grid-column:1/-1;color:#D6D9DB;font-size:10px;line-height:1.4}
+.dash-mobile-summary em{color:#8B7330;font-size:9px;font-style:normal}
+.dash-withdraw-balance>small{display:block;margin-top:8px;color:#D6D9DB;font-size:10px;line-height:1.45}
+@media(max-width:800px){.dash-trading-info{margin-top:13px;padding:14px;grid-template-columns:35px minmax(0,1fr) auto;gap:3px 9px;border-radius:14px}.dash-trading-info-icon{width:34px;height:34px;border-radius:10px}.dash-trading-info-copy>span{font-size:11px}.dash-trading-info-copy>strong{font-size:13px}.dash-trading-info-copy>small{font-size:9px}.dash-trading-info-status{padding:6px 8px;font-size:9px}.dash-trading-info-note{grid-column:1/-1;margin-top:7px;font-size:10px}.dash-trading-info>a{grid-column:1/-1;margin-top:2px}.dash-mobile-balance-caption{grid-column:1;grid-row:3;align-self:start}.dash-mobile-balance-actions{grid-row:1/4}.dash-profit-withdraw-card{align-items:flex-start;flex-direction:column}.dash-profit-withdraw-card>a{padding-top:2px}}

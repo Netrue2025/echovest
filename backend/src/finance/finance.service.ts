@@ -6,13 +6,13 @@ import { AdminAudit } from '../admin/admin-audit.schema.js';
 import { FinanceSettings, FinanceTransaction } from './finance.schema.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { ReferralsService } from '../referrals/referrals.service.js';
-import { TradePosition } from '../trades/trade.schema.js';
+import { CopyTradeSignal, TradePosition } from '../trades/trade.schema.js';
 
 type Actor = { id: string; email: string };
 @Injectable()
 export class FinanceService {
   private readonly logger = new Logger(FinanceService.name);
-  constructor(@InjectModel(User.name) private readonly users: Model<User>, @InjectModel(FinanceTransaction.name) private readonly transactions: Model<FinanceTransaction>, @InjectModel(FinanceSettings.name) private readonly settings: Model<FinanceSettings>, @InjectModel(AdminAudit.name) private readonly audit: Model<AdminAudit>, @InjectModel(TradePosition.name) private readonly tradePositions: Model<TradePosition>, private readonly notifications: NotificationsService, private readonly referrals: ReferralsService) {}
+  constructor(@InjectModel(User.name) private readonly users: Model<User>, @InjectModel(FinanceTransaction.name) private readonly transactions: Model<FinanceTransaction>, @InjectModel(FinanceSettings.name) private readonly settings: Model<FinanceSettings>, @InjectModel(AdminAudit.name) private readonly audit: Model<AdminAudit>, @InjectModel(TradePosition.name) private readonly tradePositions: Model<TradePosition>, @InjectModel(CopyTradeSignal.name) private readonly tradeSignals: Model<CopyTradeSignal>, private readonly notifications: NotificationsService, private readonly referrals: ReferralsService) {}
   private async config() { return await this.settings.findOneAndUpdate({ key: 'platform' }, { $setOnInsert: { key: 'platform' } }, { upsert: true, new: true, setDefaultsOnInsert: true }).lean().exec(); }
   async publicSettings() { const s = await this.config(); return { depositWalletAddress: s?.depositWalletAddress ?? '', depositNetwork: s?.depositNetwork ?? '', depositInstructions: s?.depositInstructions ?? '', minimumDeposit: s?.minimumDeposit ?? 0, minimumWithdrawal: s?.minimumWithdrawal ?? 0 }; }
   async updateSettings(input: { depositWalletAddress: string; depositNetwork: string; depositInstructions: string; minimumDeposit: number; minimumWithdrawal: number }, actor: Actor) {
@@ -21,10 +21,23 @@ export class FinanceService {
     return result;
   }
   async summary(userId: string) {
-    const [user, transactions] = await Promise.all([this.users.findById(userId).select('tradingBalance referralBalance pendingTradingWithdrawals pendingReferralWithdrawals').lean().exec(), this.listUserTransactions(userId)]);
+    const [user, transactions, positions] = await Promise.all([this.users.findById(userId).select('tradingBalance referralBalance pendingTradingWithdrawals pendingReferralWithdrawals').lean().exec(), this.listUserTransactions(userId), this.tradePositions.find({ userId: new Types.ObjectId(userId) }).select('signalId principal joinedAt stoppedAt claimedInterest').lean().exec()]);
     if (!user) throw new NotFoundException('Account not found.');
     const trading = user.tradingBalance ?? 0, referral = user.referralBalance ?? 0;
-    return { balances: { trading, referral, availableTrading: Math.max(0, trading - (user.pendingTradingWithdrawals ?? 0)), availableReferral: Math.max(0, referral - (user.pendingReferralWithdrawals ?? 0)) }, transactions };
+    const signals = positions.length ? await this.tradeSignals.find({ _id: { $in: positions.map((position) => position.signalId) } }).select('roiPercent lockDays').lean().exec() : [];
+    const signalMap = new Map(signals.map((signal) => [String(signal._id), signal]));
+    const totalProfitEarned = positions.reduce((total, position) => {
+      const signal = signalMap.get(String(position.signalId));
+      if (!signal) return total;
+      const start = new Date(position.joinedAt).getTime();
+      const end = start + signal.lockDays * 24 * 60 * 60 * 1000;
+      const cutoff = position.stoppedAt ? Math.min(new Date(position.stoppedAt).getTime(), end) : end;
+      const elapsed = Math.max(0, Math.min(Date.now(), cutoff) - start);
+      const profit = position.principal * signal.roiPercent / 100 * Math.min(1, elapsed / Math.max(1, end - start));
+      return total + profit;
+    }, 0);
+    const profitAlreadyRequested = positions.reduce((total, position) => total + (position.claimedInterest ?? 0), 0);
+    return { balances: { trading, referral, availableTrading: Math.max(0, trading - (user.pendingTradingWithdrawals ?? 0)), availableReferral: Math.max(0, referral - (user.pendingReferralWithdrawals ?? 0)), totalProfitEarned, availableProfit: Math.max(0, totalProfitEarned - profitAlreadyRequested) }, transactions };
   }
   async listUserTransactions(userId: string) {
     const docs = await this.transactions.find({ userId: new Types.ObjectId(userId) }).sort({ createdAt: -1 }).limit(100).lean().exec();
@@ -41,11 +54,12 @@ export class FinanceService {
     catch (error) { if (typeof error === 'object' && error !== null && 'code' in error && error.code === 11000) throw new ConflictException('This transaction hash has already been submitted.'); throw error; }
   }
   async requestWithdrawal(userId: string, input: { amount: number; balanceType: 'trading' | 'referral'; destinationAddress: string; network: string }) {
+    if (input.balanceType !== 'referral') throw new ForbiddenException('Investment principal is locked for copy trading. Request eligible trade profit from the Copy trading page after its withdrawal window opens.');
     const [s, user] = await Promise.all([this.config(), this.users.findById(userId).select('+role isDisabled withdrawalsDisabled tradingBalance referralBalance pendingTradingWithdrawals pendingReferralWithdrawals').lean().exec()]);
     if (!user || user.isDisabled || user.withdrawalsDisabled) throw new ForbiddenException('Withdrawals are disabled for this account.');
-    if (input.amount < (s?.minimumWithdrawal ?? 0)) throw new BadRequestException(`The minimum withdrawal is ${s?.minimumWithdrawal ?? 0} USDT.`);
-    const balanceField = input.balanceType === 'trading' ? 'tradingBalance' : 'referralBalance';
-    const pendingField = input.balanceType === 'trading' ? 'pendingTradingWithdrawals' : 'pendingReferralWithdrawals';
+    if (input.amount < (s?.minimumWithdrawal ?? 0)) throw new BadRequestException(`The minimum withdrawal is ${s?.minimumWithdrawal ?? 0} USD.`);
+    const balanceField = 'referralBalance';
+    const pendingField = 'pendingReferralWithdrawals';
     const held = await this.users.findOneAndUpdate({ _id: userId, isDisabled: { $ne: true }, withdrawalsDisabled: { $ne: true }, $expr: { $gte: [{ $subtract: [{ $ifNull: [`$${balanceField}`, 0] }, { $ifNull: [`$${pendingField}`, 0] }] }, input.amount] } }, { $inc: { [pendingField]: input.amount } }, { new: true }).lean().exec();
     if (!held) throw new BadRequestException('The amount exceeds your available balance.');
     try { return await this.transactions.create({ userId: new Types.ObjectId(userId), type: 'withdrawal', amount: input.amount, balanceType: input.balanceType, status: 'pending_review', destinationAddress: input.destinationAddress.trim(), network: input.network.trim() }); }
@@ -78,11 +92,14 @@ export class FinanceService {
           referralPayouts.push(...await this.referrals.accrueDeposit(String(transaction.userId), String(transaction._id), transaction.amount, session));
         }
         if (transaction.type === 'withdrawal') {
-          const balance = transaction.balanceType === 'trading' ? 'tradingBalance' : 'referralBalance';
-          const pending = transaction.balanceType === 'trading' ? 'pendingTradingWithdrawals' : 'pendingReferralWithdrawals';
-          const update = decision === 'approved' ? { $inc: { [balance]: -transaction.amount, [pending]: -transaction.amount } } : { $inc: { [pending]: -transaction.amount } };
-          const updated = await this.users.updateOne({ _id: transaction.userId, [pending]: { $gte: transaction.amount }, ...(decision === 'approved' ? { [balance]: { $gte: transaction.amount } } : {}) }, update, { session }).exec();
-          if (!updated.matchedCount) throw new ConflictException('Could not settle the reserved withdrawal amount.');
+          const profitLedger = transaction.sourceType === 'trade_interest' && transaction.profitLedger;
+          if (!profitLedger) {
+            const balance = transaction.balanceType === 'trading' ? 'tradingBalance' : 'referralBalance';
+            const pending = transaction.balanceType === 'trading' ? 'pendingTradingWithdrawals' : 'pendingReferralWithdrawals';
+            const update = decision === 'approved' ? { $inc: { [balance]: -transaction.amount, [pending]: -transaction.amount } } : { $inc: { [pending]: -transaction.amount } };
+            const updated = await this.users.updateOne({ _id: transaction.userId, [pending]: { $gte: transaction.amount }, ...(decision === 'approved' ? { [balance]: { $gte: transaction.amount } } : {}) }, update, { session }).exec();
+            if (!updated.matchedCount) throw new ConflictException('Could not settle the reserved withdrawal amount.');
+          }
           if (decision === 'rejected' && transaction.sourceType === 'trade_interest' && transaction.tradePositionId) {
             const restored = await this.tradePositions.updateOne({ _id: transaction.tradePositionId, userId: transaction.userId, claimedInterest: { $gte: transaction.amount } }, { $inc: { claimedInterest: -transaction.amount } }, { session }).exec();
             if (!restored.matchedCount) throw new ConflictException('Could not restore the rejected trade interest to the position.');
@@ -98,7 +115,9 @@ export class FinanceService {
       const message = decision === 'approved'
         ? expectedType === 'deposit'
           ? `Your ${transaction.amount} USDT deposit was approved and credited to your trading balance.`
-          : `Your ${transaction.amount} USDT withdrawal was approved and debited from your ${transaction.balanceType} balance.`
+          : transaction.sourceType === 'trade_interest'
+            ? `Your ${transaction.amount} USD trade profit withdrawal was approved.`
+            : `Your ${transaction.amount} USDT withdrawal was approved and debited from your ${transaction.balanceType} balance.`
         : `${expectedType === 'deposit' ? 'Your deposit' : 'Your withdrawal'} was rejected. ${reason?.trim() || 'Please review the request details.'}`;
       try { await this.notifications.notifyUser(String(transaction.userId), title, message, expectedType); }
       catch (error) { this.logger.error(`Transaction ${expectedType} notification could not be saved: ${error instanceof Error ? error.message : 'unknown error'}`); }

@@ -93,8 +93,9 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
   async userDashboard(userId: string) {
     await this.publishDueSignals();
     await this.settleMatured(userId);
-    const [signals, positions] = await Promise.all([
+    const [signals, nextSignal, positions] = await Promise.all([
       this.signals.find({ status: 'open' }).sort({ startsAt: 1 }).limit(50).lean().exec(),
+      this.signals.findOne({ status: 'scheduled', startsAt: { $gt: new Date() } }).sort({ startsAt: 1 }).lean().exec(),
       this.positions.find({ userId: new Types.ObjectId(userId) }).sort({ createdAt: -1 }).limit(100).lean().exec(),
     ]);
     const ids = positions.map((item) => item.signalId);
@@ -103,7 +104,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
     const positionMap = new Map(positions.map((item) => [String(item.signalId), item]));
     const activeSignals = signals.map((signal) => this.serializeSignal(signal, undefined, positionMap.get(String(signal._id)) ?? null));
     const pastPositions = positions.flatMap((position) => { const signal = signalMap.get(String(position.signalId)); return signal ? [this.serializePosition(position, signal)] : []; });
-    return { openTrades: activeSignals, positions: pastPositions };
+    return { openTrades: activeSignals, nextTrade: nextSignal ? this.serializeSignal(nextSignal) : null, positions: pastPositions };
   }
 
   async adminSignals() {
@@ -175,9 +176,9 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
         if (amount < 0.01 || amount > available + 1e-8) throw new BadRequestException(`Available accrued interest is ${available.toFixed(8)} USD.`);
         const updatedPosition = await this.positions.findOneAndUpdate({ _id: positionId, claimedInterest: position.claimedInterest }, { $inc: { claimedInterest: amount } }, { new: true, session }).exec();
         if (!updatedPosition) throw new ConflictException('Interest balance changed. Refresh and try again.');
-        const user = await this.users.updateOne({ _id: userId, role: 'user', isDisabled: { $ne: true }, withdrawalsDisabled: { $ne: true } }, { $inc: { tradingBalance: amount, pendingTradingWithdrawals: amount } }, { session }).exec();
-        if (!user.matchedCount) throw new NotFoundException('Account not found.');
-        const docs = await this.transactions.create([{ userId: new Types.ObjectId(userId), type: 'withdrawal', amount, balanceType: 'trading', status: 'pending_review', destinationAddress: destinationAddress.trim(), network: network.trim(), sourceType: 'trade_interest', tradePositionId: new Types.ObjectId(positionId) }], { session });
+        const user = await this.users.findOne({ _id: userId, role: 'user', isDisabled: { $ne: true }, withdrawalsDisabled: { $ne: true } }).session(session).select('_id').lean().exec();
+        if (!user) throw new NotFoundException('Account not found or withdrawals are disabled.');
+        const docs = await this.transactions.create([{ userId: new Types.ObjectId(userId), type: 'withdrawal', amount, balanceType: 'trading', status: 'pending_review', destinationAddress: destinationAddress.trim(), network: network.trim(), sourceType: 'trade_interest', profitLedger: true, tradePositionId: new Types.ObjectId(positionId) }], { session });
         createdTransaction = docs[0];
         referralPayouts = await this.referrals.accrueTrading(userId, String(createdTransaction._id), amount, session);
         await this.writeAudit(userId, 'system', 'trades.interest.withdrawal_requested', String(createdTransaction._id), signal.pair, `${amount} USD accrued interest requested; pending admin withdrawal review.`, session);
