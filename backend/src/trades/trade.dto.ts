@@ -4,8 +4,8 @@ export class CreateTradeSignalDto {
   @IsString() @MinLength(3) @MaxLength(100) title!: string;
   @IsString() @MinLength(3) @MaxLength(24) @Matches(/^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/) pair!: string;
   @IsDateString() startsAt!: string;
+  @IsDateString() endsAt!: string;
   @IsNumber({ maxDecimalPlaces: 4 }) @Min(0) @Max(100) roiPercent!: number;
-  @IsInt() @Min(1) @Max(365) lockDays!: number;
   @IsNumber({ maxDecimalPlaces: 8 }) @Min(0.01) minimumInvestment!: number;
   @IsNumber({ maxDecimalPlaces: 8 }) @Min(0.01) maximumInvestment!: number;
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(7) @IsInt({ each: true }) @Min(0, { each: true }) @Max(6, { each: true }) interestWithdrawalDays!: number[];

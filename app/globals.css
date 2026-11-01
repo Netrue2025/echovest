@@ -572,6 +572,7 @@ body{overflow-x:hidden}@media(max-width:900px){.grid-lines>.container{grid-templ
 .dash-trading-info-copy>span{color:#62676D;font-size:10px}
 .dash-trading-info-copy>strong{color:#1E2329;font-size:12px}
 .dash-trading-info-copy>small{color:#737A83;font-size:9px}
+.dash-trading-info-copy>small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dash-trading-info-status{padding:5px 8px;background:#fff;color:#555D66;font-size:9px}
 .dash-trading-info-status.live{background:#E8F7F0;color:#008B62}
 .dash-trading-info-status.live i{background:#00A878}

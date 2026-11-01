@@ -11,8 +11,9 @@ export class CopyTradeSignal {
   @Prop({ required: true, trim: true, maxlength: 100 }) title!: string;
   @Prop({ required: true, trim: true, uppercase: true, maxlength: 24, index: true }) pair!: string;
   @Prop({ required: true, index: true }) startsAt!: Date;
+  @Prop({ type: Date, required: true, index: true }) endsAt!: Date;
   @Prop({ required: true, min: 0, max: 100 }) roiPercent!: number;
-  @Prop({ required: true, min: 1, max: 365 }) lockDays!: number;
+  @Prop({ min: 1, max: 365 }) lockDays?: number;
   @Prop({ required: true, min: 0.01 }) minimumInvestment!: number;
   @Prop({ required: true, min: 0.01 }) maximumInvestment!: number;
   @Prop({ type: [Number], required: true }) interestWithdrawalDays!: number[];

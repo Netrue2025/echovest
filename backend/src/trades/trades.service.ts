@@ -10,8 +10,19 @@ import { CreateTradeSignalDto } from './trade.dto.js';
 import { CopyTradeSignal, TradePosition } from './trade.schema.js';
 
 type Actor = { id: string; email: string };
-const duration = (days: number) => days * 24 * 60 * 60 * 1000;
-const maturesAt = (position: Pick<TradePosition, 'joinedAt'>, signal: Pick<CopyTradeSignal, 'lockDays'>) => new Date(new Date(position.joinedAt).getTime() + duration(signal.lockDays));
+const DAY_MS = 24 * 60 * 60 * 1000;
+const duration = (days: number) => days * DAY_MS;
+const signalDuration = (signal: Pick<CopyTradeSignal, 'startsAt' | 'endsAt' | 'lockDays'>) => {
+  const scheduledDuration = signal.endsAt ? new Date(signal.endsAt).getTime() - new Date(signal.startsAt).getTime() : 0;
+  return Number.isFinite(scheduledDuration) && scheduledDuration > 0 ? scheduledDuration : duration(signal.lockDays ?? 1);
+};
+const scheduleEndsAt = (signal: Pick<CopyTradeSignal, 'startsAt' | 'endsAt' | 'lockDays'>) => signal.endsAt ? new Date(signal.endsAt) : new Date(new Date(signal.startsAt).getTime() + duration(signal.lockDays ?? 1));
+const maturesAt = (position: Pick<TradePosition, 'joinedAt'>, signal: Pick<CopyTradeSignal, 'startsAt' | 'endsAt' | 'lockDays'>) => new Date(new Date(position.joinedAt).getTime() + signalDuration(signal));
+const lockTermLabel = (milliseconds: number) => {
+  const totalMinutes = Math.max(1, Math.round(milliseconds / 60_000));
+  const days = Math.floor(totalMinutes / 1440), hours = Math.floor((totalMinutes % 1440) / 60), minutes = totalMinutes % 60;
+  return [days ? `${days} day${days === 1 ? '' : 's'}` : '', hours ? `${hours} hour${hours === 1 ? '' : 's'}` : '', minutes ? `${minutes} minute${minutes === 1 ? '' : 's'}` : ''].filter(Boolean).join(' ');
+};
 
 @Injectable()
 export class TradesService implements OnModuleInit, OnModuleDestroy {
@@ -41,14 +52,17 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
 
   async createSignal(input: CreateTradeSignalDto, actor: Actor) {
     const startsAt = new Date(input.startsAt);
+    const endsAt = new Date(input.endsAt);
     if (!Number.isFinite(startsAt.getTime()) || startsAt.getTime() <= Date.now()) throw new BadRequestException('Choose a future start time.');
+    if (!Number.isFinite(endsAt.getTime()) || endsAt.getTime() <= startsAt.getTime()) throw new BadRequestException('Choose an end time after the scheduled start time.');
+    if (endsAt.getTime() - startsAt.getTime() > 365 * DAY_MS) throw new BadRequestException('A trade schedule cannot run for more than 365 days.');
     if (input.minimumInvestment > input.maximumInvestment) throw new BadRequestException('Maximum investment must be at least the minimum investment.');
     if (input.interestWindowStart >= input.interestWindowEnd) throw new BadRequestException('Interest withdrawal window must end after it starts on the same day.');
     const days = [...new Set(input.interestWithdrawalDays)].sort();
     if (days.length !== input.interestWithdrawalDays.length) throw new BadRequestException('Choose each interest withdrawal day only once.');
     try { new Intl.DateTimeFormat('en', { timeZone: input.timezone }); } catch { throw new BadRequestException('Choose a valid timezone.'); }
-    const signal = await this.signals.create({ ...input, pair: input.pair.toUpperCase().replace(/\s/g, ''), startsAt, interestWithdrawalDays: days, status: 'scheduled', createdBy: actor.email });
-    await this.writeAudit(actor.id, actor.email, 'trades.signal.scheduled', String(signal._id), `${signal.pair} copy trade`, `Starts ${startsAt.toISOString()}; configured ROI ${signal.roiPercent}% over ${signal.lockDays} days.`);
+    const signal = await this.signals.create({ ...input, pair: input.pair.toUpperCase().replace(/\s/g, ''), startsAt, endsAt, interestWithdrawalDays: days, status: 'scheduled', createdBy: actor.email });
+    await this.writeAudit(actor.id, actor.email, 'trades.signal.scheduled', String(signal._id), `${signal.pair} copy trade`, `Starts ${startsAt.toISOString()} and ends ${endsAt.toISOString()}; configured ROI ${signal.roiPercent}% over ${lockTermLabel(endsAt.getTime() - startsAt.getTime())}.`);
     return this.serializeSignal(signal);
   }
 
@@ -62,7 +76,8 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private serializeSignal(signal: CopyTradeSignal & { _id?: unknown }, copiedBy?: number, participation?: TradePosition | null) {
-    return { id: String(signal._id), title: signal.title, pair: signal.pair, startsAt: signal.startsAt, roiPercent: signal.roiPercent, lockDays: signal.lockDays, minimumInvestment: signal.minimumInvestment, maximumInvestment: signal.maximumInvestment, interestWithdrawalDays: signal.interestWithdrawalDays, interestWindowStart: signal.interestWindowStart, interestWindowEnd: signal.interestWindowEnd, timezone: signal.timezone, status: signal.status, copiedBy: copiedBy ?? 0, participation: participation ? this.serializePosition(participation, signal) : null };
+    const endsAt = scheduleEndsAt(signal);
+    return { id: String(signal._id), title: signal.title, pair: signal.pair, startsAt: signal.startsAt, endsAt, roiPercent: signal.roiPercent, lockDays: signalDuration(signal) / DAY_MS, minimumInvestment: signal.minimumInvestment, maximumInvestment: signal.maximumInvestment, interestWithdrawalDays: signal.interestWithdrawalDays, interestWindowStart: signal.interestWindowStart, interestWindowEnd: signal.interestWindowEnd, timezone: signal.timezone, status: signal.status, copiedBy: copiedBy ?? 0, participation: participation ? this.serializePosition(participation, signal) : null };
   }
 
   private interestAt(position: TradePosition, signal: CopyTradeSignal, now = new Date()) {
@@ -76,17 +91,25 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
 
   private serializePosition(position: TradePosition, signal: CopyTradeSignal) {
     const accrued = this.interestAt(position, signal);
-    return { id: String(position._id), signalId: String(signal._id), pair: signal.pair, title: signal.title, principal: position.principal, status: position.status, joinedAt: position.joinedAt, stoppedAt: position.stoppedAt ?? null, principalReturnedAt: position.principalReturnedAt ?? null, maturesAt: maturesAt(position, signal), roiPercent: signal.roiPercent, lockDays: signal.lockDays, interestAccrued: accrued, interestClaimed: position.claimedInterest, interestAvailable: Math.max(0, accrued - position.claimedInterest), interestWithdrawalDays: signal.interestWithdrawalDays, interestWindowStart: signal.interestWindowStart, interestWindowEnd: signal.interestWindowEnd, timezone: signal.timezone };
+    return { id: String(position._id), signalId: String(signal._id), pair: signal.pair, title: signal.title, principal: position.principal, status: position.status, joinedAt: position.joinedAt, stoppedAt: position.stoppedAt ?? null, principalReturnedAt: position.principalReturnedAt ?? null, maturesAt: maturesAt(position, signal), roiPercent: signal.roiPercent, lockDays: signalDuration(signal) / DAY_MS, interestAccrued: accrued, interestClaimed: position.claimedInterest, interestAvailable: Math.max(0, accrued - position.claimedInterest), interestWithdrawalDays: signal.interestWithdrawalDays, interestWindowStart: signal.interestWindowStart, interestWindowEnd: signal.interestWindowEnd, timezone: signal.timezone };
   }
 
   async publishDueSignals() {
     const now = new Date();
     const due = await this.signals.find({ status: 'scheduled', startsAt: { $lte: now } }).limit(100).exec();
     for (const signal of due) {
+      if (scheduleEndsAt(signal).getTime() <= now.getTime()) {
+        await this.signals.updateOne({ _id: signal._id, status: 'scheduled' }, { $set: { status: 'completed' } }).exec();
+        continue;
+      }
       const opened = await this.signals.findOneAndUpdate({ _id: signal._id, status: 'scheduled', startsAt: { $lte: now } }, { $set: { status: 'open', publishedAt: now } }, { new: true }).exec();
       if (!opened) continue;
-      try { await this.notifications.notifyAll(`Copy trade now open: ${opened.pair}`, `${opened.title} is live and available to join. Configured ROI: ${opened.roiPercent}% over ${opened.lockDays} days.`, `/dashboard?view=trading`); }
+      try { await this.notifications.notifyAll(`Copy trade now open: ${opened.pair}`, `${opened.title} is live and available to join until ${scheduleEndsAt(opened).toISOString()}. Configured ROI: ${opened.roiPercent}% over ${lockTermLabel(signalDuration(opened))}.`, `/dashboard?view=trading`); }
       catch (error) { this.logger.error(`Trade launch notification failed for ${opened.pair}: ${error instanceof Error ? error.message : 'unknown error'}`); }
+    }
+    const open = await this.signals.find({ status: 'open' }).exec();
+    for (const signal of open) {
+      if (scheduleEndsAt(signal).getTime() <= now.getTime()) await this.signals.updateOne({ _id: signal._id, status: 'open' }, { $set: { status: 'completed' } }).exec();
     }
   }
 
@@ -120,6 +143,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
     if (!Types.ObjectId.isValid(signalId)) throw new NotFoundException('Copy trade not found.');
     const signal = await this.signals.findOne({ _id: signalId, status: 'open' }).lean().exec();
     if (!signal) throw new ConflictException('This copy trade is not open for joining.');
+    if (scheduleEndsAt(signal).getTime() <= Date.now()) throw new ConflictException('The scheduled copy-trade window has ended.');
     if (amount < signal.minimumInvestment || amount > signal.maximumInvestment) throw new BadRequestException(`Investment must be between ${signal.minimumInvestment} and ${signal.maximumInvestment} USD.`);
     const session = await this.positions.db.startSession();
     let position: TradePosition | null = null;
