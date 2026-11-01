@@ -232,6 +232,49 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
     return { transaction: createdTransaction, message: 'Interest withdrawal request submitted for admin review.' };
   }
 
+  async withdrawProfit(userId: string, amount: number, destinationAddress: string, network: string) {
+    const session = await this.positions.db.startSession();
+    let createdTransaction: FinanceTransaction | null = null;
+    let referralPayouts: Array<{ userId: string; amount: number; tier: number }> = [];
+    try {
+      await session.withTransaction(async () => {
+        const user = await this.users.findOne({ _id: userId, role: 'user', isDisabled: { $ne: true }, withdrawalsDisabled: { $ne: true } }).session(session).select('_id').lean().exec();
+        if (!user) throw new NotFoundException('Account not found or withdrawals are disabled.');
+        const activePosition = await this.positions.exists({ userId: new Types.ObjectId(userId), status: 'active' }).session(session).exec();
+        if (activePosition) throw new BadRequestException('Stop all active copy trades before requesting a profit withdrawal.');
+        const now = new Date();
+        const settings = await this.financeSettings.findOne({ key: 'platform' }).session(session).lean().exec();
+        assertWithdrawalWindow(settings ?? {}, now);
+        if (amount < (settings?.minimumWithdrawal ?? 0)) throw new BadRequestException(`The minimum withdrawal is ${settings?.minimumWithdrawal ?? 0} USD.`);
+
+        const positions = await this.positions.find({ userId: new Types.ObjectId(userId), status: { $in: ['stopped', 'matured'] } }).sort({ joinedAt: 1 }).session(session).exec();
+        let remaining = amount;
+        const allocations: Array<{ positionId: Types.ObjectId; amount: number }> = [];
+        for (const position of positions) {
+          if (remaining < 0.00000001) break;
+          const signal = await this.signals.findById(position.signalId).session(session).exec();
+          if (!signal) continue;
+          const available = Math.max(0, this.interestAt(position, signal, now) - position.claimedInterest);
+          const allocation = Math.min(remaining, available);
+          if (allocation < 0.00000001) continue;
+          const updated = await this.positions.updateOne({ _id: position._id, claimedInterest: position.claimedInterest }, { $inc: { claimedInterest: allocation } }, { session }).exec();
+          if (!updated.matchedCount) throw new ConflictException('Profit balance changed. Refresh and try again.');
+          allocations.push({ positionId: position._id as Types.ObjectId, amount: allocation });
+          remaining = Math.max(0, remaining - allocation);
+        }
+        if (remaining > 0.00000001) throw new BadRequestException('The requested amount exceeds available profit from closed trades.');
+
+        const docs = await this.transactions.create([{ userId: new Types.ObjectId(userId), type: 'withdrawal', amount, balanceType: 'trading', status: 'pending_review', destinationAddress: destinationAddress.trim(), network: network.trim(), sourceType: 'trade_interest', profitLedger: true, profitPositionAllocations: allocations }], { session });
+        createdTransaction = docs[0];
+        referralPayouts = await this.referrals.accrueTrading(userId, String(createdTransaction._id), amount, session);
+        await this.writeAudit(userId, 'system', 'trades.profit.withdrawal_requested', String(createdTransaction._id), 'Total profit earned', `${amount} USD profit withdrawal submitted across ${allocations.length} closed trade position(s); pending admin review.`, session);
+      });
+    } finally { await session.endSession(); }
+    if (createdTransaction) await this.notifications.notifyUser(userId, 'Profit withdrawal requested', `${amount} USD profit has been submitted for admin review.`, 'withdrawal').catch((error) => this.logger.warn(`Profit withdrawal notification failed: ${error instanceof Error ? error.message : 'unknown error'}`));
+    for (const payout of referralPayouts) await this.notifications.notifyUser(payout.userId, 'Referral trading commission credited', `You earned ${payout.amount} USD from a tier ${payout.tier} referral's copy-trade profit.`, 'general').catch((error) => this.logger.warn(`Referral trade commission notification failed: ${error instanceof Error ? error.message : 'unknown error'}`));
+    return { transaction: createdTransaction, message: 'Profit withdrawal request submitted for admin review.' };
+  }
+
   async settleMatured(userId?: string) {
     const now = new Date();
     const filter = { status: { $in: ['active', 'stopped'] }, principalReturnedAt: null, ...(userId ? { userId: new Types.ObjectId(userId) } : {}) };

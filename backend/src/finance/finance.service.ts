@@ -158,9 +158,14 @@ export class FinanceService {
             const updated = await this.users.updateOne({ _id: transaction.userId, [pending]: { $gte: transaction.amount }, ...(decision === 'approved' ? { [balance]: { $gte: transaction.amount } } : {}) }, update, { session }).exec();
             if (!updated.matchedCount) throw new ConflictException('Could not settle the reserved withdrawal amount.');
           }
-          if (decision === 'rejected' && transaction.sourceType === 'trade_interest' && transaction.tradePositionId) {
-            const restored = await this.tradePositions.updateOne({ _id: transaction.tradePositionId, userId: transaction.userId, claimedInterest: { $gte: transaction.amount } }, { $inc: { claimedInterest: -transaction.amount } }, { session }).exec();
-            if (!restored.matchedCount) throw new ConflictException('Could not restore the rejected trade interest to the position.');
+          if (decision === 'rejected' && transaction.sourceType === 'trade_interest') {
+            const allocations = transaction.profitPositionAllocations?.length
+              ? transaction.profitPositionAllocations
+              : transaction.tradePositionId ? [{ positionId: transaction.tradePositionId, amount: transaction.amount }] : [];
+            for (const allocation of allocations) {
+              const restored = await this.tradePositions.updateOne({ _id: allocation.positionId, userId: transaction.userId, claimedInterest: { $gte: allocation.amount } }, { $inc: { claimedInterest: -allocation.amount } }, { session }).exec();
+              if (!restored.matchedCount) throw new ConflictException('Could not restore the rejected trade interest to its position.');
+            }
           }
         }
         await this.audit.create([{ actorId: actor.id, actorEmail: actor.email, action: `finance.${transaction.type}.${decision}`, targetType: 'transaction', targetId: id, targetLabel: String(transaction.userId), detail: decision === 'rejected' ? reason!.trim() : `${transaction.amount} USDT approved.` }], { session });

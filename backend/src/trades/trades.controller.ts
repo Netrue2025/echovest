@@ -23,6 +23,9 @@ export class TradesController {
   @Post('positions/:id/withdraw-interest') @UseGuards(OriginGuard, SessionGuard)
   withdrawInterest(@Req() request: Request & { user?: User }, @Param('id') id: string, @Body() body: WithdrawTradeInterestDto) { return this.trades.withdrawInterest(String(request.user!._id), id, body.amount, body.destinationAddress, body.network); }
 
+  @Post('withdraw-profit') @UseGuards(OriginGuard, SessionGuard)
+  withdrawProfit(@Req() request: Request & { user?: User }, @Body() body: WithdrawTradeInterestDto) { return this.trades.withdrawProfit(String(request.user!._id), body.amount, body.destinationAddress, body.network); }
+
   @Patch('admin/signals/:id/close') @UseGuards(OriginGuard, SessionGuard, AdminAccessGuard) @RequireAdminPermissions('signals.manage')
   close(@Req() request: Request & { user?: User }, @Param('id') id: string) { return this.trades.closeSignal(id, { id: String(request.user!._id), email: request.user!.email }); }
 

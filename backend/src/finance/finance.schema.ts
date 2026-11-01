@@ -19,6 +19,7 @@ export class FinanceTransaction {
   @Prop() reviewedAt?: Date;
   @Prop({ enum: ['trade_interest'] }) sourceType?: 'trade_interest';
   @Prop({ default: false }) profitLedger?: boolean;
+  @Prop({ type: [{ positionId: { type: Types.ObjectId, required: true }, amount: { type: Number, required: true, min: 0.01 } }], default: [] }) profitPositionAllocations!: Array<{ positionId: Types.ObjectId; amount: number }>;
   @Prop({ default: false }) maturedPrincipalWithdrawal?: boolean;
   @Prop({ type: Types.ObjectId, default: null }) tradePositionId?: Types.ObjectId | null;
 }
