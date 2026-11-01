@@ -22,7 +22,7 @@ export class CopyTradeSignal {
   @Prop({ default: 0, min: 0 }) currentCopiers!: number;
   @Prop({ required: true, enum: ['scheduled', 'open', 'completed', 'cancelled'], default: 'scheduled', index: true }) status!: 'scheduled' | 'open' | 'completed' | 'cancelled';
   @Prop({ required: true }) createdBy!: string;
-  @Prop({ default: null }) publishedAt?: Date | null;
+  @Prop({ type: Date, default: null }) publishedAt?: Date | null;
 }
 export const CopyTradeSignalSchema = SchemaFactory.createForClass(CopyTradeSignal);
 CopyTradeSignalSchema.index({ status: 1, startsAt: 1 });
@@ -36,8 +36,8 @@ export class TradePosition {
   @Prop({ required: true, min: 0.01 }) principal!: number;
   @Prop({ required: true, enum: ['active', 'stopped', 'matured'], default: 'active', index: true }) status!: 'active' | 'stopped' | 'matured';
   @Prop({ required: true }) joinedAt!: Date;
-  @Prop({ default: null }) stoppedAt?: Date | null;
-  @Prop({ default: null }) principalReturnedAt?: Date | null;
+  @Prop({ type: Date, default: null }) stoppedAt?: Date | null;
+  @Prop({ type: Date, default: null }) principalReturnedAt?: Date | null;
   @Prop({ default: 0, min: 0 }) claimedInterest!: number;
 }
 export const TradePositionSchema = SchemaFactory.createForClass(TradePosition);
