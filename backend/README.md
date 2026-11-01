@@ -74,4 +74,28 @@ Automated tests should mock Resend and Mongo models; no email or production data
 
 To enable browser push delivery, generate one VAPID key pair from the `backend` directory with `npx web-push generate-vapid-keys`. Set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` on the backend deployment (for example, `mailto:admin@your-domain.com` for the subject), then redeploy the backend. Keep the private key secret and reuse the same pair across deployments so existing browser subscriptions remain valid. Without these settings, the in-app inbox and admin broadcasts still work, but push subscription and device delivery stay disabled.
 
+## Deposit prototype
+
+The deposit prototype adds an authenticated `GET /wallet/deposit-address?asset=USDT&network=TRON` endpoint. It stores one permanent account per user, asset, and network. The frontend requests this endpoint with the existing EchoVest session cookie. The mock address begins `TEST-TRC20-` and is deliberately not a blockchain address.
+
+Set `DEPOSIT_PROVIDER_MODE=mock` and `NODE_ENV=development` locally to use the TEST simulator. The confirmed test ledger uses MongoDB Decimal128 values with six-decimal precision; pending, failed, invalid, and duplicate events do not increase the TEST balance. The TEST balance is separate from `User.tradingBalance`, referral funds, trade balances, and withdrawal requests. The mock event route is denied outside development mode.
+
+The old `POST /finance/deposits` and admin deposit approval route are disabled so no deposit path in this prototype can credit withdrawable balances. Existing withdrawal behavior is unchanged. Do not send crypto to a TEST address.
+
+### ChainPay configuration and release gate
+
+ChainPay has no documented sandbox/testnet. Keep `CHAINPAY_LIVE_DEPOSITS_ENABLED=false` during development; this leaves live address provisioning disabled. If a separately approved live integration is later enabled, configure all values below on the backend only and verify the flow with a controlled end-to-end transaction before accepting user funds:
+
+- `DEPOSIT_PROVIDER_MODE=chainpay`
+- `CHAINPAY_LIVE_DEPOSITS_ENABLED=true` (explicit live address provisioning gate; do not set for this prototype)
+- `CHAINPAY_FORWARD_ADDRESS`: verified TRON address owned by EchoVest
+- `CHAINPAY_CALLBACK_URL`: public HTTPS URL ending in `/api/webhooks/chainpay`
+- `CHAINPAY_WEBHOOK_SECRET`: high-entropy value, at least 32 characters; added as the documented callback `token` query parameter server-side
+- `TRON_USDT_CONTRACT`: independently verified USDT TRC20 contract address
+- `CHAINPAY_API_KEY`: optional only if required by the ChainPay account/API plan
+
+The ChainPay adapter calls the published `POST /deposit-address` route and status/transactions routes. Provider callbacks are checked for the shared secret, expected asset/network/contract, a known EchoVest external reference, and a unique transaction hash plus status (the provider's documented retry key). Confirmed events are reconciled with ChainPay's status and transaction responses. The current endpoint docs do not define a complete transaction response schema, so any response that cannot be matched by documented fields stays uncredited for manual review. Even after provider reconciliation, this prototype records events as `confirmed_uncredited`; it does not credit either the TEST wallet or any real user balance. Independent on-chain verification is still a production blocker. Webhook delivery is unsigned by ChainPay, so the query secret is only one layer of protection. The callback contains that secret in its URL: ensure reverse proxies, access logs, tracing, and monitoring redact query strings. Never put provider secrets in frontend environment variables.
+
+Do not enable customer deposits or describe them as operational until independent on-chain verification, production monitoring, retry/reconciliation workers, operational review tooling, and a separately designed real ledger credit workflow have been implemented and tested. No real withdrawal code is included in this prototype.
+
 Users opt in from Dashboard → Notifications. Admin broadcasts use the Notifications section and require the `notifications.manage` permission. Approved or rejected deposit and withdrawal requests create an in-app notification and send a device push to subscribed users.

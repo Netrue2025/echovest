@@ -13,6 +13,8 @@ import { FinanceModule } from './finance/finance.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { ReferralsModule } from './referrals/referrals.module.js';
 import { TradesModule } from './trades/trades.module.js';
+import { WalletModule } from './wallet/wallet.module.js';
+import { WebhooksModule } from './webhooks/webhooks.module.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -41,6 +43,8 @@ function validateEnvironment(config: Record<string, unknown>) {
     NotificationsModule,
     ReferralsModule,
     TradesModule,
+    WalletModule,
+    WebhooksModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: RateLimitGuard }],
 })

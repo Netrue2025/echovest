@@ -21,7 +21,7 @@ describe('AuthService', () => {
   const email = { sendVerificationCode: vi.fn(async (_address: string, _name: string, code: string) => { sentCode = code; }) };
   const config = { getOrThrow: vi.fn(() => 'test-session-secret-long-enough-for-hmac') };
   const records = {
-    findOneAndUpdate: vi.fn((_query: unknown, data: Omit<NonNullable<typeof verification>, '_id'>) => { verification = { ...data, _id: 'otp-1' }; return { exec: async () => verification }; }),
+    findOneAndUpdate: vi.fn((_query: unknown, update: { $set: Omit<NonNullable<typeof verification>, '_id'> }) => { verification = { ...update.$set, _id: 'otp-1' }; return { exec: async () => verification }; }),
     findOne: vi.fn(() => ({ exec: async () => verification, select: () => ({ exec: async () => verification }) })),
     updateOne: vi.fn(() => ({ exec: async () => { if (verification) verification.attempts += 1; } })),
     deleteOne: vi.fn(() => ({ exec: async () => { verification = null; } })),

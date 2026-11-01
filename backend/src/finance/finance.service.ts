@@ -5,7 +5,6 @@ import { User } from '../users/user.schema.js';
 import { AdminAudit } from '../admin/admin-audit.schema.js';
 import { FinanceSettings, FinanceTransaction } from './finance.schema.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
-import { ReferralsService } from '../referrals/referrals.service.js';
 import { CopyTradeSignal, TradePosition } from '../trades/trade.schema.js';
 import { assertWithdrawalWindow } from './withdrawal-window.js';
 
@@ -13,7 +12,7 @@ type Actor = { id: string; email: string };
 @Injectable()
 export class FinanceService {
   private readonly logger = new Logger(FinanceService.name);
-  constructor(@InjectModel(User.name) private readonly users: Model<User>, @InjectModel(FinanceTransaction.name) private readonly transactions: Model<FinanceTransaction>, @InjectModel(FinanceSettings.name) private readonly settings: Model<FinanceSettings>, @InjectModel(AdminAudit.name) private readonly audit: Model<AdminAudit>, @InjectModel(TradePosition.name) private readonly tradePositions: Model<TradePosition>, @InjectModel(CopyTradeSignal.name) private readonly tradeSignals: Model<CopyTradeSignal>, private readonly notifications: NotificationsService, private readonly referrals: ReferralsService) {}
+  constructor(@InjectModel(User.name) private readonly users: Model<User>, @InjectModel(FinanceTransaction.name) private readonly transactions: Model<FinanceTransaction>, @InjectModel(FinanceSettings.name) private readonly settings: Model<FinanceSettings>, @InjectModel(AdminAudit.name) private readonly audit: Model<AdminAudit>, @InjectModel(TradePosition.name) private readonly tradePositions: Model<TradePosition>, @InjectModel(CopyTradeSignal.name) private readonly tradeSignals: Model<CopyTradeSignal>, private readonly notifications: NotificationsService) {}
   private async config() { return await this.settings.findOneAndUpdate({ key: 'platform' }, { $setOnInsert: { key: 'platform' } }, { upsert: true, new: true, setDefaultsOnInsert: true }).lean().exec(); }
   async publicSettings() { const s = await this.config(); return { depositWalletAddress: s?.depositWalletAddress ?? '', depositNetwork: s?.depositNetwork ?? '', depositInstructions: s?.depositInstructions ?? '', minimumDeposit: s?.minimumDeposit ?? 0, minimumWithdrawal: s?.minimumWithdrawal ?? 0, capitalLockDays: s?.capitalLockDays ?? 60, withdrawalDays: s?.withdrawalDays ?? [1, 3, 5], withdrawalWindowStart: s?.withdrawalWindowStart ?? '09:00', withdrawalWindowEnd: s?.withdrawalWindowEnd ?? '17:00', withdrawalTimezone: s?.withdrawalTimezone ?? 'Africa/Lagos' }; }
   async updateSettings(input: { depositWalletAddress: string; depositNetwork: string; depositInstructions: string; minimumDeposit: number; minimumWithdrawal: number; capitalLockDays: number; withdrawalDays: number[]; withdrawalWindowStart: string; withdrawalWindowEnd: string; withdrawalTimezone: string }, actor: Actor) {
@@ -83,14 +82,8 @@ export class FinanceService {
     return docs.map((doc) => ({ ...doc, id: String(doc._id) }));
   }
   async requestDeposit(userId: string, amount: number, txid?: string) {
-    const [s, user] = await Promise.all([this.config(), this.users.findById(userId).select('isDisabled').lean().exec()]);
-    if (!user || user.isDisabled) throw new ForbiddenException('This account cannot request deposits.');
-    if (!s?.depositWalletAddress || !s.depositNetwork) throw new BadRequestException('Deposits are not configured yet. Contact support.');
-    if (amount < (s.minimumDeposit ?? 0)) throw new BadRequestException(`The minimum deposit is ${s.minimumDeposit} USDT.`);
-    const hash = txid?.trim();
-    if (!hash) throw new BadRequestException('Enter the transaction hash so the deposit can be verified.');
-    try { return await this.transactions.create({ userId: new Types.ObjectId(userId), type: 'deposit', amount, balanceType: 'trading', status: 'network_confirmation', txid: hash, network: s.depositNetwork }); }
-    catch (error) { if (typeof error === 'object' && error !== null && 'code' in error && error.code === 11000) throw new ConflictException('This transaction hash has already been submitted.'); throw error; }
+    void userId; void amount; void txid;
+    throw new ForbiddenException('Real customer deposits are disabled. Use the separate TEST wallet prototype.');
   }
   async requestWithdrawal(userId: string, input: { amount: number; balanceType: 'trading' | 'referral'; destinationAddress: string; network: string }) {
     await this.settleMaturedCapital(userId);
@@ -121,25 +114,18 @@ export class FinanceService {
     return items.map((item) => ({ ...item, id: String(item._id), user: map.get(String(item.userId)) ?? null }));
   }
   async review(id: string, expectedType: 'deposit' | 'withdrawal', decision: 'approved' | 'rejected', reason: string | undefined, actor: Actor) {
+    if (expectedType === 'deposit') throw new ForbiddenException('Legacy real deposit approvals are disabled. TEST deposits never credit withdrawable balances.');
     const transaction = await this.transactions.findById(id).exec();
     if (!transaction) throw new NotFoundException('Transaction request not found.');
     if (transaction.type !== expectedType) throw new NotFoundException('Transaction request not found.');
-    const validCurrent = transaction.type === 'deposit' ? 'network_confirmation' : 'pending_review';
+    const validCurrent = 'pending_review';
     if (transaction.status !== validCurrent) throw new ConflictException('This request has already been reviewed.');
     if (decision === 'rejected' && !reason?.trim()) throw new BadRequestException('Add a reason when rejecting a request.');
     const session = await this.transactions.db.startSession();
-    const referralPayouts: Array<{ userId: string; amount: number; tier: number }> = [];
     try {
       await session.withTransaction(async () => {
         const changed = await this.transactions.findOneAndUpdate({ _id: id, status: validCurrent }, { $set: { status: decision, rejectionReason: decision === 'rejected' ? reason!.trim() : '', reviewedBy: actor.email, reviewedAt: new Date() } }, { new: true, session }).exec();
         if (!changed) throw new ConflictException('This request has already been reviewed.');
-        if (transaction.type === 'deposit' && decision === 'approved') {
-          const settings = await this.settings.findOne({ key: 'platform' }).session(session).lean().exec();
-          const capitalUnlockAt = new Date(Date.now() + (settings?.capitalLockDays ?? 60) * 24 * 60 * 60 * 1000);
-          const credited = await this.users.updateOne({ _id: transaction.userId }, { $inc: { tradingBalance: transaction.amount }, $push: { lockedCapitalLots: { amount: transaction.amount, unlockAt: capitalUnlockAt } } }, { session }).exec();
-          if (!credited.matchedCount) throw new NotFoundException('The account for this deposit no longer exists.');
-          referralPayouts.push(...await this.referrals.accrueDeposit(String(transaction.userId), String(transaction._id), transaction.amount, session));
-        }
         if (transaction.type === 'withdrawal') {
           const profitLedger = transaction.sourceType === 'trade_interest' && transaction.profitLedger;
           if (profitLedger && decision === 'approved') {
@@ -175,22 +161,16 @@ export class FinanceService {
     const reviewed = await this.transactions.findById(id).lean().exec();
     if (reviewed) {
       const decisionText = decision === 'approved' ? 'approved' : 'rejected';
-      const title = `${expectedType === 'deposit' ? 'Deposit' : 'Withdrawal'} ${decisionText}`;
+      const title = `Withdrawal ${decisionText}`;
       const message = decision === 'approved'
-        ? expectedType === 'deposit'
-          ? `Your ${transaction.amount} USDT deposit was approved and credited to your trading balance.`
-          : transaction.sourceType === 'trade_interest'
+        ? transaction.sourceType === 'trade_interest'
             ? `Your ${transaction.amount} USD trade profit withdrawal was approved.`
             : transaction.maturedPrincipalWithdrawal
               ? `Your ${transaction.amount} USD matured investment principal withdrawal was approved.`
               : `Your ${transaction.amount} USDT withdrawal was approved and debited from your ${transaction.balanceType} balance.`
-        : `${expectedType === 'deposit' ? 'Your deposit' : 'Your withdrawal'} was rejected. ${reason?.trim() || 'Please review the request details.'}`;
-      try { await this.notifications.notifyUser(String(transaction.userId), title, message, expectedType); }
+        : `Your withdrawal was rejected. ${reason?.trim() || 'Please review the request details.'}`;
+      try { await this.notifications.notifyUser(String(transaction.userId), title, message, 'withdrawal'); }
       catch (error) { this.logger.error(`Transaction ${expectedType} notification could not be saved: ${error instanceof Error ? error.message : 'unknown error'}`); }
-      for (const payout of referralPayouts) {
-        try { await this.notifications.notifyUser(payout.userId, 'Referral commission credited', `You earned ${payout.amount} USD from a tier ${payout.tier} referral deposit.`, 'deposit'); }
-        catch (error) { this.logger.error(`Referral commission notification could not be saved: ${error instanceof Error ? error.message : 'unknown error'}`); }
-      }
     }
     return reviewed;
   }
