@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { Connection, Model, Types } from 'mongoose';
+import type { Connection, Model } from 'mongoose';
+import { Types } from 'mongoose';
 import { DepositWalletAccount } from './deposit-wallet-account.schema.js';
 import { DepositLedgerEntry } from './deposit-ledger-entry.schema.js';
 import { ProviderDeposit } from './provider-deposit.schema.js';
