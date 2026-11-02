@@ -12,7 +12,7 @@ export function DepositView() {
   const [step, setStep] = useState<'amount' | 'address'>('amount');
   const [details, setDetails] = useState<DepositDetails | null>(null);
   const [qr, setQr] = useState('');
-  const [amount, setAmount] = useState('25.00');
+  const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
