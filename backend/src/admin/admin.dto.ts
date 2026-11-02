@@ -1,4 +1,4 @@
-import { ArrayMaxSize, ArrayUnique, IsArray, IsBoolean, IsEmail, IsIn, IsOptional, IsString, MaxLength, MinLength, Matches } from 'class-validator';
+import { ArrayMaxSize, ArrayUnique, IsArray, IsBoolean, IsEmail, IsIn, IsOptional, IsString, IsNumber, Min, Max, MaxLength, MinLength, Matches } from 'class-validator';
 import { DELEGATABLE_ADMIN_PERMISSION_CODES } from './admin-permissions.js';
 
 export class AdminSigninDto {
@@ -26,3 +26,9 @@ export class UpdateUserControlsDto {
   @IsOptional() @IsBoolean() disabled?: boolean;
 }
 export class UpdateUserWithdrawalDto { @IsBoolean() withdrawalsDisabled!: boolean; }
+export class AdjustUserBalanceDto {
+  @IsIn(['trading', 'referral']) wallet!: 'trading' | 'referral';
+  @IsIn(['credit', 'debit']) direction!: 'credit' | 'debit';
+  @IsNumber({ maxDecimalPlaces: 8 }) @Min(0.00000001) @Max(1000000000) amount!: number;
+  @IsString() @MinLength(3) @MaxLength(500) reason!: string;
+}

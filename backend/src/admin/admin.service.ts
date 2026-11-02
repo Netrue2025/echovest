@@ -1,14 +1,18 @@
-import { ConflictException, ForbiddenException, Injectable, Logger, OnModuleInit, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, OnModuleInit, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { UsersService } from '../users/users.service.js';
 import { SessionsService } from '../sessions/sessions.service.js';
 import { EmailVerification } from '../auth/verification.schema.js';
 import { PasswordReset } from '../auth/password-reset.schema.js';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { InjectConnection, InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
+import type { Connection } from 'mongoose';
 import { ADMIN_PERMISSION_CODES } from './admin-permissions.js';
 import { AdminAudit } from './admin-audit.schema.js';
+import { User } from '../users/user.schema.js';
+import { FinanceTransaction } from '../finance/finance.schema.js';
+import { ProviderDeposit } from '../deposits/provider-deposit.schema.js';
 
 export type AdminActor = { id: string; email: string };
 
@@ -23,6 +27,10 @@ export class AdminService implements OnModuleInit {
     @InjectModel(EmailVerification.name) private readonly verifications: Model<EmailVerification>,
     @InjectModel(PasswordReset.name) private readonly passwordResets: Model<PasswordReset>,
     @InjectModel(AdminAudit.name) private readonly audit: Model<AdminAudit>,
+    @InjectModel(User.name) private readonly userModel: Model<User>,
+    @InjectModel(FinanceTransaction.name) private readonly transactions: Model<FinanceTransaction>,
+    @InjectModel(ProviderDeposit.name) private readonly providerDeposits: Model<ProviderDeposit>,
+    @InjectConnection() private readonly connection: Connection,
   ) {}
   async onModuleInit() {
     const email = this.config.get<string>('SUPER_ADMIN_EMAIL')?.trim().toLowerCase();
@@ -45,7 +53,55 @@ export class AdminService implements OnModuleInit {
   }
   async listUsers() {
     const docs = await this.users.listAll();
-    return docs.map((user) => ({ id: String(user._id), fullName: user.fullName, email: user.email, role: user.role, isSuperAdmin: user.isSuperAdmin ?? false, isEmailVerified: user.isEmailVerified, isDisabled: user.isDisabled ?? false, withdrawalsDisabled: user.withdrawalsDisabled ?? false, createdAt: user.createdAt }));
+    return docs.map((user) => ({ id: String(user._id), fullName: user.fullName, email: user.email, role: user.role, isSuperAdmin: user.isSuperAdmin ?? false, isEmailVerified: user.isEmailVerified, isDisabled: user.isDisabled ?? false, withdrawalsDisabled: user.withdrawalsDisabled ?? false, tradingBalance: user.tradingBalance ?? 0, referralBalance: user.referralBalance ?? 0, createdAt: user.createdAt }));
+  }
+  async overview(days = 30) {
+    if (![7, 30, 90, 365].includes(days)) throw new BadRequestException('Choose a supported overview period.');
+    const start = new Date(); start.setUTCHours(0, 0, 0, 0); start.setUTCDate(start.getUTCDate() - days + 1);
+    const [registeredUsers, walletRows, financeTotals, chainpayTotals, financeDaily, chainpayDaily] = await Promise.all([
+      this.userModel.countDocuments({ role: 'user' }).exec(),
+      this.userModel.aggregate([{ $match: { role: 'user' } }, { $group: { _id: null, trading: { $sum: '$tradingBalance' }, referral: { $sum: '$referralBalance' } } }]).exec(),
+      this.transactions.aggregate([{ $match: { status: 'approved', createdAt: { $gte: start } } }, { $group: { _id: { type: '$type' }, total: { $sum: '$amount' } } }]).exec(),
+      this.providerDeposits.aggregate([{ $match: { status: 'credited', creditedAt: { $gte: start } } }, { $group: { _id: null, total: { $sum: { $toDouble: '$amount' } } } }]).exec(),
+      this.transactions.aggregate([{ $match: { status: 'approved', createdAt: { $gte: start } } }, { $group: { _id: { day: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, type: '$type' }, total: { $sum: '$amount' } } }]).exec(),
+      this.providerDeposits.aggregate([{ $match: { status: 'credited', creditedAt: { $gte: start } } }, { $group: { _id: { day: { $dateToString: { format: '%Y-%m-%d', date: '$creditedAt' } } }, total: { $sum: { $toDouble: '$amount' } } } }]).exec(),
+    ]);
+    const daily = new Map<string, { date: string; deposits: number; withdrawals: number }>();
+    for (let i = 0; i < days; i++) { const day = new Date(start); day.setUTCDate(start.getUTCDate() + i); const key = day.toISOString().slice(0, 10); daily.set(key, { date: key, deposits: 0, withdrawals: 0 }); }
+    for (const row of financeDaily) { const item = daily.get(row._id.day); if (item) item[row._id.type === 'deposit' ? 'deposits' : 'withdrawals'] += Number(row.total); }
+    for (const row of chainpayDaily) { const item = daily.get(row._id.day); if (item) item.deposits += Number(row.total); }
+    const totals: Record<string, number> = { deposit: Number(chainpayTotals[0]?.total ?? 0), withdrawal: 0 };
+    for (const row of financeTotals) totals[row._id.type] = (totals[row._id.type] ?? 0) + Number(row.total);
+    const wallets = walletRows[0] ?? { trading: 0, referral: 0 };
+    return { periodDays: days, registeredUsers, walletBalance: Number(wallets.trading ?? 0) + Number(wallets.referral ?? 0), tradingBalance: Number(wallets.trading ?? 0), referralBalance: Number(wallets.referral ?? 0), deposits: totals.deposit ?? 0, withdrawals: totals.withdrawal ?? 0, daily: [...daily.values()] };
+  }
+  async listUserBalances() {
+    const users = await this.userModel.find({ role: 'user' }).select('fullName email tradingBalance referralBalance createdAt').sort({ createdAt: -1 }).lean().exec();
+    const rows = users.map((user) => ({ id: String(user._id), fullName: user.fullName, email: user.email, tradingBalance: user.tradingBalance ?? 0, referralBalance: user.referralBalance ?? 0, total: (user.tradingBalance ?? 0) + (user.referralBalance ?? 0), createdAt: user.createdAt }));
+    return { users: rows, totalTrading: rows.reduce((sum, user) => sum + user.tradingBalance, 0), totalReferral: rows.reduce((sum, user) => sum + user.referralBalance, 0), totalBalance: rows.reduce((sum, user) => sum + user.total, 0) };
+  }
+  async adjustUserBalance(id: string, input: { wallet: 'trading' | 'referral'; direction: 'credit' | 'debit'; amount: number; reason: string }, actor: AdminActor) {
+    if (!Types.ObjectId.isValid(id) || !Number.isFinite(input.amount) || input.amount <= 0) throw new BadRequestException('Enter a valid user and positive adjustment amount.');
+    const field = input.wallet === 'trading' ? 'tradingBalance' : 'referralBalance';
+    const delta = input.direction === 'credit' ? input.amount : -input.amount;
+    const query: Record<string, unknown> = { _id: new Types.ObjectId(id), role: 'user' };
+    if (delta < 0) query[field] = { $gte: input.amount };
+    const session = await this.connection.startSession();
+    let result: { id: string; tradingBalance: number; referralBalance: number } | null = null;
+    try {
+      await session.withTransaction(async () => {
+        const updated = await this.userModel.findOneAndUpdate(query, { $inc: { [field]: delta } }, { new: true, projection: 'fullName email tradingBalance referralBalance', session }).lean().exec();
+        if (!updated) throw new ConflictException('User not found or the wallet does not have enough balance for this debit.');
+        await this.audit.create([{ actorId: actor.id, actorEmail: actor.email, action: 'user.wallet.adjusted', targetType: 'user', targetId: id, targetLabel: updated.email, detail: `${input.direction} ${input.amount.toFixed(8)} USD to ${input.wallet} wallet. Reason: ${input.reason.trim()}` }], { session });
+        result = { id, tradingBalance: updated.tradingBalance ?? 0, referralBalance: updated.referralBalance ?? 0 };
+      });
+    } catch (error) {
+      if (error instanceof ConflictException) throw error;
+      this.logger.error('Balance adjustment failed; transaction was rolled back.');
+      throw new ServiceUnavailableException('Wallet adjustment requires MongoDB transactions. Confirm the database is a replica set or sharded cluster, then retry.');
+    } finally { await session.endSession(); }
+    if (!result) throw new ServiceUnavailableException('Wallet adjustment did not complete.');
+    return result;
   }
   async updateUser(id: string, updates: { fullName?: string; email?: string }, actor: AdminActor) {
     const existing = await this.users.findByIdWithPassword(id);

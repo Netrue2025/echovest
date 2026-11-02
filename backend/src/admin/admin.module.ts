@@ -11,6 +11,9 @@ import { SuperAdminGuard } from './super-admin.guard.js';
 import { OriginGuard } from '../auth/origin.guard.js';
 import { SessionGuard } from '../auth/session.guard.js';
 import { AdminAudit, AdminAuditSchema } from './admin-audit.schema.js';
+import { User } from '../users/user.schema.js';
+import { FinanceTransaction, FinanceTransactionSchema } from '../finance/finance.schema.js';
+import { ProviderDeposit, ProviderDepositSchema } from '../deposits/provider-deposit.schema.js';
 
-@Module({ imports: [MongooseModule.forFeature([{ name: EmailVerification.name, schema: EmailVerificationSchema }, { name: PasswordReset.name, schema: PasswordResetSchema }, { name: AdminAudit.name, schema: AdminAuditSchema }]), UsersModule, SessionsModule], controllers: [AdminController], providers: [AdminService, AdminAccessGuard, SuperAdminGuard, OriginGuard, SessionGuard] })
+@Module({ imports: [MongooseModule.forFeature([{ name: EmailVerification.name, schema: EmailVerificationSchema }, { name: PasswordReset.name, schema: PasswordResetSchema }, { name: AdminAudit.name, schema: AdminAuditSchema }, { name: FinanceTransaction.name, schema: FinanceTransactionSchema }, { name: ProviderDeposit.name, schema: ProviderDepositSchema }]), UsersModule, SessionsModule], controllers: [AdminController], providers: [AdminService, AdminAccessGuard, SuperAdminGuard, OriginGuard, SessionGuard] })
 export class AdminModule {}

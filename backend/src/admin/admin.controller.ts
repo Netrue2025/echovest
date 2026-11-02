@@ -6,7 +6,7 @@ import { SESSION_COOKIE, SessionsService } from '../sessions/sessions.service.js
 import { User } from '../users/user.schema.js';
 import { AdminAccessGuard, RequireAdminPermissions } from './admin-access.guard.js';
 import { AdminActor, AdminService } from './admin.service.js';
-import { AdminSigninDto, CreateAdminDto, UpdateAdminPermissionsDto, UpdateAdminStatusDto, UpdateUserControlsDto, UpdateUserDto, UpdateUserPasswordDto, UpdateUserWithdrawalDto } from './admin.dto.js';
+import { AdjustUserBalanceDto, AdminSigninDto, CreateAdminDto, UpdateAdminPermissionsDto, UpdateAdminStatusDto, UpdateUserControlsDto, UpdateUserDto, UpdateUserPasswordDto, UpdateUserWithdrawalDto } from './admin.dto.js';
 import { ADMIN_PERMISSION_GROUPS } from './admin-permissions.js';
 import { SuperAdminGuard } from './super-admin.guard.js';
 
@@ -40,6 +40,9 @@ export class AdminController {
   }
   @Get('permission-groups') @UseGuards(SessionGuard, AdminAccessGuard, SuperAdminGuard) permissionGroups() { return ADMIN_PERMISSION_GROUPS; }
   @Get('users') @UseGuards(SessionGuard, AdminAccessGuard) @RequireAdminPermissions('users.view') listUsers() { return this.admin.listUsers(); }
+  @Get('overview') @UseGuards(SessionGuard, AdminAccessGuard) @RequireAdminPermissions('dashboard.view') overview(@Req() request: Request) { const raw = Number(request.query.days ?? 30); return this.admin.overview(raw); }
+  @Get('user-balances') @UseGuards(SessionGuard, AdminAccessGuard) @RequireAdminPermissions('wallets.view') listUserBalances() { return this.admin.listUserBalances(); }
+  @Patch('users/:id/balance') @UseGuards(OriginGuard, SessionGuard, AdminAccessGuard) @RequireAdminPermissions('wallets.adjust') adjustUserBalance(@Param('id') id: string, @Body() body: AdjustUserBalanceDto, @Req() request: Request & { user?: User }) { return this.admin.adjustUserBalance(id, body, this.actor(request)); }
   @Patch('users/:id') @UseGuards(OriginGuard, SessionGuard, AdminAccessGuard) @RequireAdminPermissions('users.manage') updateUser(@Param('id') id: string, @Body() body: UpdateUserDto, @Req() request: Request & { user?: User }) { return this.admin.updateUser(id, body, this.actor(request)); }
   @Patch('users/:id/password') @UseGuards(OriginGuard, SessionGuard, AdminAccessGuard) @RequireAdminPermissions('users.manage') updatePassword(@Param('id') id: string, @Body() body: UpdateUserPasswordDto, @Req() request: Request & { user?: User }) { return this.admin.changeUserPassword(id, body.password, this.actor(request)); }
   @Patch('users/:id/controls') @UseGuards(OriginGuard, SessionGuard, AdminAccessGuard) @RequireAdminPermissions('users.manage') updateControls(@Param('id') id: string, @Body() body: UpdateUserControlsDto, @Req() request: Request & { user?: User }) { return this.admin.updateUserControls(id, body, this.actor(request)); }
