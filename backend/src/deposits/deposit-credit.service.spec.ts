@@ -9,6 +9,8 @@ function setup() {
   };
   const ledgerRows: Array<Record<string, any>> = [];
   let micros = 0n;
+  let userTradingBalance = 0;
+  const userUpdates: Array<Record<string, any>> = [];
   const session = { withTransaction: vi.fn(async (callback: () => Promise<void>) => callback()), endSession: vi.fn(async () => undefined) };
   const connection = { startSession: vi.fn(async () => session) };
   const deposits = {
@@ -34,11 +36,17 @@ function setup() {
       return rows;
     }),
   };
-  return { service: new DepositCreditService(connection as never, deposits as never, balances as never, ledger as never), event, ledgerRows, session, deposits, balances, ledger, micros: () => micros };
+  const users = { updateOne: vi.fn((_query: unknown, update: Record<string, any>) => ({ exec: async () => {
+    userUpdates.push(update);
+    userTradingBalance += update.$inc.tradingBalance;
+    return { matchedCount: 1 };
+  } })) };
+  const settings = { findOne: vi.fn(() => ({ session() { return this; }, lean() { return this; }, exec: async () => ({ capitalLockDays: 30 }) })) };
+  return { service: new DepositCreditService(connection as never, deposits as never, balances as never, ledger as never, users as never, settings as never), event, ledgerRows, session, deposits, balances, ledger, users, settings, userUpdates, userTradingBalance: () => userTradingBalance, micros: () => micros };
 }
 
 describe('DepositCreditService', () => {
-  it('commits one immutable Decimal128 ledger credit and increments the deposit wallet exactly', async () => {
+  it('atomically credits the Decimal128 ledger, deposit account, and dashboard investment balance with a capital lock', async () => {
     const fixture = setup();
     await expect(fixture.service.creditVerifiedDeposit(String(fixture.event._id))).resolves.toEqual({ credited: true });
     expect(fixture.ledgerRows[0]).toMatchObject({
@@ -46,6 +54,9 @@ describe('DepositCreditService', () => {
       reference: `chainpay:${'a'.repeat(64)}:0`, status: 'confirmed',
     });
     expect(fixture.micros()).toBe(25_123_456n);
+    expect(fixture.userTradingBalance()).toBe(25.123456);
+    expect(fixture.userUpdates[0].$push.lockedCapitalLots).toMatchObject({ amount: 25.123456 });
+    expect(fixture.userUpdates[0].$push.lockedCapitalLots.unlockAt.getTime()).toBeGreaterThan(Date.now() + 29 * 24 * 60 * 60 * 1000);
     expect(fixture.event.status).toBe('credited');
     expect(fixture.session.withTransaction).toHaveBeenCalledOnce();
   });
@@ -57,6 +68,8 @@ describe('DepositCreditService', () => {
     expect(fixture.ledgerRows).toHaveLength(1);
     expect(fixture.micros()).toBe(25_123_456n);
     expect(fixture.balances.updateOne).toHaveBeenCalledOnce();
+    expect(fixture.users.updateOne).toHaveBeenCalledOnce();
+    expect(fixture.userTradingBalance()).toBe(25.123456);
   });
 
   it('blocks a second deposit event with the same transaction hash', async () => {
@@ -67,5 +80,6 @@ describe('DepositCreditService', () => {
     await expect(fixture.service.creditVerifiedDeposit(String(fixture.event._id))).resolves.toEqual({ credited: false, duplicate: true });
     expect(fixture.ledgerRows).toHaveLength(1);
     expect(fixture.balances.updateOne).toHaveBeenCalledOnce();
+    expect(fixture.users.updateOne).toHaveBeenCalledOnce();
   });
 });

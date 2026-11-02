@@ -3,7 +3,7 @@ import { HydratedDocument, Schema as MongooseSchema, Types } from 'mongoose';
 
 export type DepositWalletAccountDocument = HydratedDocument<DepositWalletAccount>;
 
-/** Decimal-only accounting balance. Not yet exposed to trade or withdrawal flows. */
+/** Decimal-only deposit ledger projection, kept in sync with the user's tradeable, withdrawal-locked investment balance. */
 @Schema({ timestamps: true, collection: 'deposit_wallet_accounts', strict: 'throw' })
 export class DepositWalletAccount {
   _id?: Types.ObjectId;

@@ -106,10 +106,9 @@ describe('DepositsService', () => {
   });
 
   it('credits only after provider and independent chain data match', async () => {
-    const { service, docs, credits, tron } = setup();
+    const { service, credits, tron } = setup();
     const result = await service.acceptWebhook(validPayload);
-    expect(result.status).toBe('pending');
-    expect(await service.reconcile(String(docs[0]._id))).toMatchObject({ reconciled: true, credited: true });
+    expect(result.status).toBe('credited');
     expect(tron.verifyTransfer).toHaveBeenCalledWith({ transactionHash: txHash, expectedRecipient: recipient, expectedTokenContract: contract });
     expect(credits.creditVerifiedDeposit).toHaveBeenCalledOnce();
   });
@@ -121,8 +120,8 @@ describe('DepositsService', () => {
     ['provider recipient mismatch', { providerRecipient: 'TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj' }, 'provider_recipient_mismatch'],
   ])('sends %s to admin review without crediting', async (_label, options, difference) => {
     const { service, docs, credits, tron } = setup(options as never);
-    await service.acceptWebhook(validPayload);
-    expect(await service.reconcile(String(docs[0]._id))).toMatchObject({ reviewRequired: true });
+    const result = await service.acceptWebhook(validPayload);
+    expect(result).toMatchObject({ accepted: true, status: 'review_required' });
     expect(docs[0].status).toBe('review_required');
     expect(docs[0].reconciliationDifferences).toContain(difference);
     expect(credits.creditVerifiedDeposit).not.toHaveBeenCalled();
@@ -132,21 +131,18 @@ describe('DepositsService', () => {
 
   it('moves a repeated transaction credit to review', async () => {
     const { service, docs } = setup({ duplicateCredit: true });
-    await service.acceptWebhook(validPayload);
-    expect(await service.reconcile(String(docs[0]._id))).toMatchObject({ reviewRequired: true, duplicate: true });
+    expect(await service.acceptWebhook(validPayload)).toMatchObject({ accepted: true, status: 'review_required' });
     expect(docs[0].reconciliationDifferences).toContain('duplicate_transaction_credit');
   });
 
   it('flags provider and TRON API failures for review without credit', async () => {
     const providerFailure = setup({ chainPayUnavailable: true });
     await providerFailure.service.acceptWebhook(validPayload);
-    await providerFailure.service.reconcile(String(providerFailure.docs[0]._id));
     expect(providerFailure.docs[0].status).toBe('review_required');
     expect(providerFailure.credits.creditVerifiedDeposit).not.toHaveBeenCalled();
 
     const tronFailure = setup({ tronUnavailable: true });
     await tronFailure.service.acceptWebhook(validPayload);
-    await tronFailure.service.reconcile(String(tronFailure.docs[0]._id));
     expect(tronFailure.docs[0].status).toBe('review_required');
     expect(tronFailure.credits.creditVerifiedDeposit).not.toHaveBeenCalled();
   });

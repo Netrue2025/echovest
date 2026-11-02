@@ -16,6 +16,7 @@ import { DepositsService } from './deposits.service.js';
 import { DepositCreditService } from './deposit-credit.service.js';
 import { TronVerificationService } from './tron-verification.service.js';
 import { DepositsController } from './deposits.controller.js';
+import { FinanceSettings, FinanceSettingsSchema } from '../finance/finance.schema.js';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { DepositsController } from './deposits.controller.js';
       { name: DepositLedgerEntry.name, schema: DepositLedgerEntrySchema },
       { name: User.name, schema: UserSchema },
       { name: AdminAudit.name, schema: AdminAuditSchema },
+      { name: FinanceSettings.name, schema: FinanceSettingsSchema },
     ]),
     UsersModule, SessionsModule, ChainPayModule,
   ],

@@ -107,6 +107,12 @@ export class DepositsService implements OnModuleInit, OnModuleDestroy {
         status, rawEvent: summary, reconciliationDifferences: differences,
         reason: differences.length ? 'Webhook fields are incomplete or inconsistent; no credit was issued.' : providerStatus === 'pending' ? 'Provider reports pending; no credit was issued.' : 'Awaiting provider and independent TRON verification.',
       });
+      if (providerStatus === 'confirmed' && !differences.length) {
+        // Begin provider and on-chain reconciliation immediately on the confirmed webhook.
+        // The scheduled worker remains as a recovery path if this request or process is interrupted.
+        const result = await this.reconcile(String(event._id));
+        return { accepted: true, duplicate: false, status: result.credited ? 'credited' : result.reviewRequired ? 'review_required' : 'pending' };
+      }
       return { accepted: true, duplicate: false, status };
     } catch (error) {
       if (typeof error === 'object' && error && 'code' in error && error.code === 11000) {

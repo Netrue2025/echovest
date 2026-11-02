@@ -5,6 +5,8 @@ import { Types } from 'mongoose';
 import { DepositWalletAccount } from './deposit-wallet-account.schema.js';
 import { DepositLedgerEntry } from './deposit-ledger-entry.schema.js';
 import { ProviderDeposit } from './provider-deposit.schema.js';
+import { User } from '../users/user.schema.js';
+import { FinanceSettings } from '../finance/finance.schema.js';
 
 @Injectable()
 export class DepositCreditService {
@@ -14,6 +16,8 @@ export class DepositCreditService {
     @InjectModel(ProviderDeposit.name) private readonly deposits: Model<ProviderDeposit>,
     @InjectModel(DepositWalletAccount.name) private readonly balances: Model<DepositWalletAccount>,
     @InjectModel(DepositLedgerEntry.name) private readonly ledger: Model<DepositLedgerEntry>,
+    @InjectModel(User.name) private readonly users: Model<User>,
+    @InjectModel(FinanceSettings.name) private readonly settings: Model<FinanceSettings>,
   ) {}
 
   /** Credits only a deposit that passed provider and independent-chain verification. */
@@ -44,9 +48,21 @@ export class DepositCreditService {
         await this.balances.updateOne(
           { userId: event.userId, asset: 'USDT', network: 'TRON' }, { $inc: { availableBalance: event.amount } }, { session },
         ).exec();
+        const settings = await this.settings.findOne({ key: 'platform' }).session(session).lean().exec();
+        const capitalLockDays = Number(settings?.capitalLockDays ?? 60);
+        if (!Number.isSafeInteger(capitalLockDays) || capitalLockDays < 1 || capitalLockDays > 3650) throw new Error('Configured capital lock period is invalid.');
+        const amount = Number(event.amount.toString());
+        if (!Number.isFinite(amount) || amount <= 0) throw new Error('Verified deposit amount is invalid for the user balance.');
+        const unlockAt = new Date(Date.now() + capitalLockDays * 24 * 60 * 60 * 1000);
+        const userUpdate = await this.users.updateOne(
+          { _id: event.userId, role: 'user' },
+          { $inc: { tradingBalance: amount }, $push: { lockedCapitalLots: { amount, unlockAt } } },
+          { session },
+        ).exec();
+        if (userUpdate.matchedCount !== 1) throw new Error('Deposit user balance could not be updated.');
         await this.deposits.updateOne(
           { _id: event._id, status: 'crediting' },
-          { $set: { status: 'credited', creditReference: reference, creditedAt: new Date(), reason: 'Provider and solidified TRON transfer verified; ledger credit committed.' } },
+          { $set: { status: 'credited', creditReference: reference, creditedAt: new Date(), reason: `Provider and solidified TRON transfer verified; ledger, deposit wallet, and user investment balance credited. Capital unlocks after ${capitalLockDays} days.` } },
           { session },
         ).exec();
         credited = true;
