@@ -1,7 +1,36 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { DepositAccount, DepositAccountSchema } from '../deposit-accounts/deposit-account.schema.js';
+import { User, UserSchema } from '../users/user.schema.js';
+import { UsersModule } from '../users/users.module.js';
+import { SessionsModule } from '../sessions/sessions.module.js';
+import { AdminAccessGuard } from '../admin/admin-access.guard.js';
+import { OriginGuard } from '../auth/origin.guard.js';
+import { SessionGuard } from '../auth/session.guard.js';
+import { AdminAudit, AdminAuditSchema } from '../admin/admin-audit.schema.js';
+import { ChainPayModule } from '../providers/chainpay/chainpay.module.js';
+import { DepositWalletAccount, DepositWalletAccountSchema } from './deposit-wallet-account.schema.js';
+import { DepositLedgerEntry, DepositLedgerEntrySchema } from './deposit-ledger-entry.schema.js';
 import { ProviderDeposit, ProviderDepositSchema } from './provider-deposit.schema.js';
 import { DepositsService } from './deposits.service.js';
-@Module({ imports: [MongooseModule.forFeature([{ name: DepositAccount.name, schema: DepositAccountSchema }, { name: ProviderDeposit.name, schema: ProviderDepositSchema }])], providers: [DepositsService], exports: [DepositsService] })
+import { DepositCreditService } from './deposit-credit.service.js';
+import { TronVerificationService } from './tron-verification.service.js';
+import { DepositsController } from './deposits.controller.js';
+
+@Module({
+  imports: [
+    MongooseModule.forFeature([
+      { name: DepositAccount.name, schema: DepositAccountSchema },
+      { name: ProviderDeposit.name, schema: ProviderDepositSchema },
+      { name: DepositWalletAccount.name, schema: DepositWalletAccountSchema },
+      { name: DepositLedgerEntry.name, schema: DepositLedgerEntrySchema },
+      { name: User.name, schema: UserSchema },
+      { name: AdminAudit.name, schema: AdminAuditSchema },
+    ]),
+    UsersModule, SessionsModule, ChainPayModule,
+  ],
+  controllers: [DepositsController],
+  providers: [DepositsService, DepositCreditService, TronVerificationService, SessionGuard, AdminAccessGuard, OriginGuard],
+  exports: [DepositsService],
+})
 export class DepositsModule {}

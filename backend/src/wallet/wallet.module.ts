@@ -8,7 +8,8 @@ import { DepositAccountsModule } from '../deposit-accounts/deposit-accounts.modu
 import { LedgerModule } from '../ledger/ledger.module.js';
 import { ChainPayModule } from '../providers/chainpay/chainpay.module.js';
 import { ProviderDeposit, ProviderDepositSchema } from '../deposits/provider-deposit.schema.js';
+import { TestDepositAccount, TestDepositAccountSchema } from '../deposit-accounts/test-deposit-account.schema.js';
 import { WalletController } from './wallet.controller.js';
 import { WalletService } from './wallet.service.js';
-@Module({ imports: [MongooseModule.forFeature([{ name: ProviderDeposit.name, schema: ProviderDepositSchema }]), DepositAccountsModule, LedgerModule, UsersModule, SessionsModule, ChainPayModule], controllers: [WalletController], providers: [WalletService, SessionGuard, OriginGuard], exports: [WalletService] })
+@Module({ imports: [MongooseModule.forFeature([{ name: ProviderDeposit.name, schema: ProviderDepositSchema }, { name: TestDepositAccount.name, schema: TestDepositAccountSchema }]), DepositAccountsModule, LedgerModule, UsersModule, SessionsModule, ChainPayModule], controllers: [WalletController], providers: [WalletService, SessionGuard, OriginGuard], exports: [WalletService] })
 export class WalletModule {}

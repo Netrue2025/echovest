@@ -7,12 +7,16 @@ function setup(mode = 'mock', nodeEnv = 'development') {
   let account: Record<string, unknown> | null = null;
   const entries: Array<Record<string, unknown>> = [];
   const createdReferences = new Set<string>();
-  const accounts = {
+  const testAccounts = {
     findOne: vi.fn((filter: { externalReference?: string }) => ({ exec: async () => account && (!filter.externalReference || account.externalReference === filter.externalReference) ? account : null })),
     findOneAndUpdate: vi.fn((_filter: unknown, update: { $setOnInsert: Record<string, unknown> }) => ({ exec: async () => {
       if (!account) account = { ...update.$setOnInsert, _id: new Types.ObjectId(), save: async function (this: Record<string, unknown>) { return this; } };
       return account;
     } })),
+  };
+  const accounts = {
+    findOne: vi.fn(() => ({ exec: async () => null })),
+    findOneAndUpdate: vi.fn(),
   };
   const ledger = {
     find: vi.fn((filter: { status?: string }) => ({ select() { return this; }, sort() { return this; }, limit() { return this; }, lean() { return this; }, exec: async () => entries.filter((entry) => !filter.status || entry.status === filter.status) })),
@@ -28,26 +32,28 @@ function setup(mode = 'mock', nodeEnv = 'development') {
   const providerDeposits = { find: vi.fn(() => ({ sort() { return this; }, limit() { return this; }, lean() { return this; }, exec: async () => [] })) };
   const config = { get: (key: string) => key === 'DEPOSIT_PROVIDER_MODE' ? mode : key === 'NODE_ENV' ? nodeEnv : undefined };
   const chainPay = { createDepositAddress: vi.fn() };
-  const service = new WalletService(accounts as never, ledger as never, providerDeposits as never, config as never, chainPay as never);
-  return { service, accounts, ledger, chainPay, entries };
+  const service = new WalletService(accounts as never, testAccounts as never, ledger as never, providerDeposits as never, config as never, chainPay as never);
+  return { service, accounts, testAccounts, ledger, chainPay, entries };
 }
 
 describe('WalletService deposit prototype', () => {
   it('creates a permanent TEST account once and retrieves it on later requests', async () => {
-    const { service, accounts } = setup();
+    const { service, testAccounts, accounts } = setup();
     const first = await service.depositDetails(userId);
     const second = await service.depositDetails(userId);
     expect(first.account.address).toMatch(/^TEST-TRC20-/);
     expect(first.account.externalReference).toBe(second.account.externalReference);
-    expect(accounts.findOneAndUpdate).toHaveBeenCalledTimes(1);
+    expect(testAccounts.findOneAndUpdate).toHaveBeenCalledTimes(1);
+    expect(accounts.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
   it('uses one account when first requests race', async () => {
-    const { service, accounts } = setup();
+    const { service, testAccounts, accounts } = setup();
     const [left, right] = await Promise.all([service.depositDetails(userId), service.depositDetails(userId)]);
     expect(left.account.externalReference).toBe(right.account.externalReference);
     expect(left.account.address).toBe(right.account.address);
-    expect(accounts.findOneAndUpdate).toHaveBeenCalledTimes(2);
+    expect(testAccounts.findOneAndUpdate).toHaveBeenCalledTimes(2);
+    expect(accounts.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
   it('keeps pending, failed, and invalid TEST deposits out of the TEST balance', async () => {
@@ -60,13 +66,14 @@ describe('WalletService deposit prototype', () => {
   });
 
   it('adds an exact six-decimal amount only after a confirmed TEST event', async () => {
-    const { service } = setup();
+    const { service, entries } = setup();
     const details = await service.depositDetails(userId);
     await service.simulate(userId, { externalReference: details.account.externalReference, status: 'confirmed', amount: '7.123456' });
     const updated = await service.depositDetails(userId);
     expect(updated.testWallet.balance).toBe('7.123456');
     expect(updated.testWallet.withdrawable).toBe(false);
     expect(updated.testOnly).toBe(true);
+    expect(entries[0]).toMatchObject({ testOnly: true, status: 'confirmed' });
   });
 
   it('makes duplicate confirmed TEST events idempotent', async () => {
@@ -76,6 +83,16 @@ describe('WalletService deposit prototype', () => {
     expect((await service.simulate(userId, event)).duplicate).toBe(false);
     expect((await service.simulate(userId, event)).duplicate).toBe(true);
     expect((await service.depositDetails(userId)).testWallet.balance).toBe('10.000001');
+  });
+
+  it('stores mock accounts and events outside all live account models', async () => {
+    const { service, accounts, testAccounts, ledger } = setup();
+    const details = await service.depositDetails(userId);
+    await service.simulate(userId, { externalReference: details.account.externalReference, status: 'confirmed', amount: '2.5' });
+    expect(testAccounts.findOneAndUpdate).toHaveBeenCalledOnce();
+    expect(accounts.findOne).not.toHaveBeenCalled();
+    expect(accounts.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(ledger.create).toHaveBeenCalledWith(expect.objectContaining({ testOnly: true }));
   });
 
   it('rejects invalid amounts and references', async () => {

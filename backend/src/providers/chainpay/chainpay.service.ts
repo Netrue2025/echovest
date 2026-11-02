@@ -17,6 +17,15 @@ export function isValidTronAddress(address: string) {
   const checksum = createHash('sha256').update(createHash('sha256').update(payload).digest()).digest().subarray(0, 4);
   return checksum.equals(decoded.subarray(21));
 }
+export function tronAddressToHex(address: string) {
+  if (!isValidTronAddress(address)) return undefined;
+  let number = 0n;
+  for (const char of address) number = number * 58n + BigInt(base58Alphabet.indexOf(char));
+  let hex = number.toString(16);
+  if (hex.length % 2) hex = `0${hex}`;
+  const decoded = Buffer.from(hex, 'hex');
+  return decoded.subarray(1, 21).toString('hex').toLowerCase();
+}
 function isPrivateCallbackHost(hostname: string) {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return true;

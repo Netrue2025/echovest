@@ -94,8 +94,38 @@ ChainPay has no documented sandbox/testnet. Keep `CHAINPAY_LIVE_DEPOSITS_ENABLED
 - `TRON_USDT_CONTRACT`: independently verified USDT TRC20 contract address
 - `CHAINPAY_API_KEY`: optional only if required by the ChainPay account/API plan
 
-The ChainPay adapter calls the published `POST /deposit-address` route and status/transactions routes. Provider callbacks are checked for the shared secret, expected asset/network/contract, a known EchoVest external reference, and a unique transaction hash plus status (the provider's documented retry key). Confirmed events are reconciled with ChainPay's status and transaction responses. The current endpoint docs do not define a complete transaction response schema, so any response that cannot be matched by documented fields stays uncredited for manual review. Even after provider reconciliation, this prototype records events as `confirmed_uncredited`; it does not credit either the TEST wallet or any real user balance. Independent on-chain verification is still a production blocker. Webhook delivery is unsigned by ChainPay, so the query secret is only one layer of protection. The callback contains that secret in its URL: ensure reverse proxies, access logs, tracing, and monitoring redact query strings. Never put provider secrets in frontend environment variables.
+The ChainPay adapter calls the published `POST /deposit-address` route and status/transactions routes. Provider callbacks are checked for the shared secret, expected asset/network/contract, a known EchoVest external reference, and a unique transaction hash plus status. **The worker does not run unless both `DEPOSIT_PROVIDER_MODE=chainpay` and `CHAINPAY_LIVE_DEPOSITS_ENABLED=true`; mock mode makes no provider or TRON requests.**
 
-Do not enable customer deposits or describe them as operational until independent on-chain verification, production monitoring, retry/reconciliation workers, operational review tooling, and a separately designed real ledger credit workflow have been implemented and tested. No real withdrawal code is included in this prototype.
+#### Independent TRON verification and crediting
+
+Keep these settings on the backend only:
+
+- `TRON_API_URL=https://api.trongrid.io` (mainnet). Use the matching official TRON endpoint for a separately configured test network; its USDT contract must match that network.
+- `TRONGRID_API_KEY`: read-only TronGrid API key. Production requests should use a key; never expose it in frontend variables or logs.
+- `TRON_MIN_CONFIRMATIONS=19`: required count measured against the SolidityNode solidified block height.
+- `TRON_USDT_CONTRACT`: independently verify the official USDT TRC20 contract for the selected network.
+
+For a confirmed event, EchoVest fetches ChainPay's status and transaction records, then requests the transaction receipt and solidified head from TRON's SolidityNode. It checks the transaction ID, successful contract execution, the canonical TRC20 `Transfer` event, exact USDT contract, exact per-user deposit recipient, six-decimal integer amount, and the configured minimum solidified confirmations. All provider and on-chain fields must match the authenticated webhook. Missing or inconsistent fields, API failures, transaction duplicates, and credit transaction failures are retained for admin review and are never treated as a successful credit.
+
+Statuses include `pending`, `reconciling`, `verified_pending_credit`, `crediting`, `credited`, `review_required`, and `rejected`. A transaction is credited only after independent checks pass. Credits use MongoDB Decimal128, an immutable `deposit_ledger_entries` record, unique references by transaction hash, and a Decimal128 `deposit_wallet_accounts` balance incremented in the same MongoDB transaction. MongoDB transactions require a replica set (MongoDB Atlas supports this). The real deposit wallet is deliberately separate from the current trading, referral, and withdrawal balances; this stage does not add deposit withdrawals or trading use.
+
+The authenticated admin review API is `GET /admin/deposit-events/review` and `POST /admin/deposit-events/:id/review`, guarded by the `deposits.manage` permission. Each action requires a reason and is committed in the same MongoDB transaction as an `admin_audit` record. Admins can reject a suspicious event or request reverification; there is no manual balance-edit or manual-credit route.
+
+ChainPay webhooks are unsigned. EchoVest validates the long random query token in constant time, stores only a selected/sanitized subset of the event, expects duplicate delivery, and deduplicates by transaction hash plus provider status. The callback contains its token in the URL: configure proxy, access log, trace, and monitoring redaction for query strings. Never put provider secrets in frontend environment variables.
+
+#### Mock data isolation and database safety
+
+Mock addresses now use the separate `test_deposit_accounts` collection. Mock activity uses `test_ledger_entries`, whose entries must carry `testOnly: true`. Neither mock flow writes `deposit_accounts`, `users`, `deposit_wallet_accounts`, `deposit_ledger_entries`, finance transactions, trades, or referral earnings. Existing mock rows in the older `deposit_accounts` collection are left untouched; new mock accounts are separate. The mock endpoint and address flow require `NODE_ENV=development` and `DEPOSIT_PROVIDER_MODE=mock`. Do not send crypto to a mock address.
+
+Unit tests use in-memory model/fetch mocks; they do not load `AppModule`, connect to MongoDB, or call ChainPay/TRON. No destructive database script, reset, migration, or seed is run by the test commands. Running the local mock API against the shared database will add records only to `test_deposit_accounts` and `test_ledger_entries`; it will not delete or overwrite existing production records, but these are still test records in the shared database and should be treated as such.
+
+Run the isolated verification tests and build with:
+
+```sh
+npm test -- --run src/wallet/wallet.service.spec.ts src/deposits/deposits.service.spec.ts src/deposits/tron-verification.service.spec.ts src/deposits/deposit-credit.service.spec.ts src/deposits/deposits.controller.spec.ts src/providers/chainpay/chainpay.service.spec.ts
+npm run build
+```
+
+Do not enable customer deposits or describe them as operational until production credentials and contract are independently validated, observed operationally, the deployment has verified replica-set transactions and indexes, real ChainPay/TRON contract response formats have been validated using controlled integration procedures, and the complete end-to-end reconciliation and ledger credit workflow has been reviewed. No real deposit withdrawals or trading use is included in this stage. Keep `DEPOSIT_PROVIDER_MODE=mock` and `CHAINPAY_LIVE_DEPOSITS_ENABLED=false` until explicit release approval.
 
 Users opt in from Dashboard → Notifications. Admin broadcasts use the Notifications section and require the `notifications.manage` permission. Approved or rejected deposit and withdrawal requests create an in-app notification and send a device push to subscribed users.
