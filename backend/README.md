@@ -129,3 +129,31 @@ npm run build
 Do not enable customer deposits or describe them as operational until production credentials and contract are independently validated, observed operationally, the deployment has verified replica-set transactions and indexes, real ChainPay/TRON contract response formats have been validated using controlled integration procedures, and the complete end-to-end reconciliation and ledger credit workflow has been reviewed. No real deposit withdrawals or trading use is included in this stage. Keep `DEPOSIT_PROVIDER_MODE=mock` and `CHAINPAY_LIVE_DEPOSITS_ENABLED=false` until explicit release approval.
 
 Users opt in from Dashboard → Notifications. Admin broadcasts use the Notifications section and require the `notifications.manage` permission. Approved or rejected deposit and withdrawal requests create an in-app notification and send a device push to subscribed users.
+
+## Deposit pre-integration hardening
+
+- Live verification is currently TRON **mainnet only**. The application pins the official TRC20 USDT contract to `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`; an environment value is checked against that trusted constant and is not itself treated as proof of token identity. `TRON_NETWORK` must be `mainnet`. The official contract is published on the [TRON USDT page](https://tron.network/usdt?lng=en).
+- Live-only startup validation requires `DEPOSIT_PROVIDER_MODE=chainpay`, the exact pinned contract and mainnet, a public HTTPS callback ending in `/api/webhooks/chainpay` with no query string, a valid forwarding address, a 32-character webhook secret, TronGrid mainnet URL and API key, and at least 19 solidified confirmations. ChainPay's API key remains optional because its documented no-registration deposit route does not require one.
+- ChainPay's published getting-started page shows callback authentication by appending `?token=...` and does not document custom webhook headers or signed callbacks ([ChainPay Getting Started](https://chainpay.site/en/docs/getting-started/)). The application continues using that documented query token; it is compared in constant time. Observe query redaction is configured for `token`, and the application does not log callback URLs. Redaction must also be configured at any reverse proxy/edge/APM layer. ChainPay or intermediate infrastructure may retain full callback URLs; that residual exposure is a blocker for real deposits. Before enabling live flow, obtain documented HMAC/custom-header support from ChainPay or use a separately reviewed authenticated callback relay with verifiable source restrictions; do not invent an undocumented provider feature.
+- The webhook endpoint applies an in-process per-IP limit (60 requests per minute) and records authentication failures, rate limits, invalid hashes, unknown references, and inconsistent payloads in `deposit_security_events`. It stores hashes of source IP and external reference, never the webhook secret or raw request body. Records expire after 90 days. The limiter is per process, so multi-instance deployments also need an edge-level shared rate limit.
+- Admin retries set an explicit retry marker, so pending, confirmed, failed, expired, invalid, and unexpected provider statuses all re-enter the provider plus independent-chain verification path. Any status still unsupported by authoritative provider evidence returns to `review_required`; it is never credited based solely on the admin retry.
+- `admin_audit` is append-only at the application schema/service layer: audit fields are immutable and update/delete query middleware rejects mutation. This is not protection from a MongoDB administrator, who retains privileged access. Use a restricted application database role that can insert/read audit documents but cannot update/delete them where feasible.
+
+### Manual MongoDB index and transaction checks (read-only)
+
+Mongoose `autoIndex` is disabled, so application startup does not create/drop indexes. Do not run `syncIndexes`, `ensureIndexes`, migrations, or index creation automatically against the shared/production database. In MongoDB Atlas Data Explorer or a read-only `mongosh` session, inspect the following collections with `db.<collection>.getIndexes()` and compare to these schema requirements:
+
+| Collection | Required indexes |
+| --- | --- |
+| `test_deposit_accounts` | unique `(userId, asset, network)`, unique `externalReference`, unique `depositAddress`, `userId` |
+| `test_ledger_entries` | unique `reference`, `(userId, createdAt)` |
+| `deposit_accounts` | unique `(userId, asset, network)`, unique `externalReference`, `userId` |
+| `provider_deposit_events` | unique `(providerTransactionId, providerStatus)`, `(userId, createdAt)`, `providerTransactionId`, `providerStatus`, `userId`, `status`, `nextAttemptAt` |
+| `deposit_ledger_entries` | unique `reference`, unique `transactionHash`, unique `depositEventId`, `(userId, createdAt)`, `userId` |
+| `deposit_wallet_accounts` | unique `(userId, asset, network)` |
+| `admin_audit` | `actorId`, `action`, `targetType` |
+| `deposit_security_events` | TTL `createdAt` (90 days), `(eventType, createdAt)` |
+
+Use `db.adminCommand({ hello: 1 })` to inspect whether the cluster reports replica-set/sharded transaction capability (`setName` or `msg: "isdbgrid"`). This is read-only but should be done through Atlas UI or an approved read-only connection; do not paste a database URI into shared logs. Successful crediting requires multi-document transactions. This task does not connect to MongoDB or create/alter indexes. Existing duplicate data may prevent unique index creation; resolve that only through a separately reviewed maintenance plan.
+
+Mock deposits remain gated to development and write only to `test_deposit_accounts` and `test_ledger_entries`; their unit flow does not call provider or blockchain services and cannot withdraw, trade, transfer, or generate referrals. Keep these settings unchanged locally: `DEPOSIT_PROVIDER_MODE=mock`, `CHAINPAY_LIVE_DEPOSITS_ENABLED=false`.

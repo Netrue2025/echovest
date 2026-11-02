@@ -15,25 +15,15 @@ import { ReferralsModule } from './referrals/referrals.module.js';
 import { TradesModule } from './trades/trades.module.js';
 import { WalletModule } from './wallet/wallet.module.js';
 import { WebhooksModule } from './webhooks/webhooks.module.js';
+import { validateEnvironment } from './config/environment.validation.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
-
-function validateEnvironment(config: Record<string, unknown>) {
-  const required = ['MONGODB_URI', 'RESEND_API_KEY', 'EMAIL_FROM', 'FRONTEND_URL', 'SESSION_SECRET'];
-  const missing = required.filter((key) => typeof config[key] !== 'string' || !(config[key] as string).trim());
-  if (missing.length) throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
-  const sessionSecret = config.SESSION_SECRET;
-  if (typeof sessionSecret !== 'string' || sessionSecret.length < 32) throw new Error('SESSION_SECRET must be at least 32 characters.');
-  const sameSite = config.SESSION_SAME_SITE;
-  if (sameSite !== undefined && (typeof sameSite !== 'string' || !['lax', 'strict', 'none'].includes(sameSite))) throw new Error('SESSION_SAME_SITE must be lax, strict, or none.');
-  return config;
-}
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnvironment }),
-    MongooseModule.forRootAsync({ inject: [ConfigService], useFactory: (config: ConfigService) => ({ uri: config.getOrThrow<string>('MONGODB_URI') }) }),
-    ObserveModule.forRoot({ appKey: process.env.OBSERVE_APP_KEY ?? 'YOUR_APP_KEY', appSecret: process.env.OBSERVE_APP_SECRET ?? 'YOUR_APP_SECRET', serviceId: 'backend' }),
+    MongooseModule.forRootAsync({ inject: [ConfigService], useFactory: (config: ConfigService) => ({ uri: config.getOrThrow<string>('MONGODB_URI'), autoIndex: false }) }),
+    ObserveModule.forRoot({ appKey: process.env.OBSERVE_APP_KEY ?? 'YOUR_APP_KEY', appSecret: process.env.OBSERVE_APP_SECRET ?? 'YOUR_APP_SECRET', serviceId: 'backend', http: { queryParamsObfuscateRegex: /([?&]token=)[^&]+/gi } }),
     UsersModule,
     SessionsModule,
     EmailModule,

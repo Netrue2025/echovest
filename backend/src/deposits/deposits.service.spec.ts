@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Types } from 'mongoose';
 import { DepositsService } from './deposits.service.js';
+import { TRON_MAINNET_USDT_CONTRACT } from './tron-network.js';
 
 const reference = 'ev_12345678-1234-4234-8234-123456789012';
 const txHash = 'a'.repeat(64);
 const recipient = 'T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb';
-const contract = 'TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj';
+const contract = TRON_MAINNET_USDT_CONTRACT;
 const account = { _id: new Types.ObjectId(), userId: new Types.ObjectId(), externalReference: reference, providerAddressId: 'addr_1', depositAddress: recipient, accountStatus: 'active' };
 const validPayload = { status: 'confirmed', externalReference: reference, chain: 'tron', tokenSymbol: 'USDT', tokenAddress: contract, isNative: false, amount: '12.345678', txHash };
 
@@ -37,7 +38,7 @@ function setup(options: { live?: boolean; chainPayUnavailable?: boolean; tronUna
     find: vi.fn(() => ({ select() { return this; }, sort() { return this; }, limit() { return this; }, lean() { return this; }, exec: async () => docs })),
     findOne: vi.fn((query: Record<string, any>) => ({ exec: async () => docs.find((row) => String(row._id) === String(query._id) && row.status === query.status) ?? null })),
     findOneAndUpdate: vi.fn((query: Record<string, any>, update: Record<string, any>) => ({ exec: async () => {
-      const event = docs.find((row) => String(row._id) === String(query._id) && row.status === 'pending' && row.providerStatus === 'confirmed');
+      const event = docs.find((row) => String(row._id) === String(query._id) && row.status === 'pending' && (row.providerStatus === 'confirmed' || row.retryRequested === true));
       if (!event) return null;
       Object.assign(event, update.$set ?? {});
       event.reconciliationAttempts += Number(update.$inc?.reconciliationAttempts ?? 0);
@@ -49,7 +50,7 @@ function setup(options: { live?: boolean; chainPayUnavailable?: boolean; tronUna
   const configValues: Record<string, string> = {
     DEPOSIT_PROVIDER_MODE: options.live === false ? 'mock' : 'chainpay',
     CHAINPAY_LIVE_DEPOSITS_ENABLED: options.live === false ? 'false' : 'true',
-    CHAINPAY_WEBHOOK_SECRET: 'x'.repeat(40), TRON_USDT_CONTRACT: contract, TRON_MIN_CONFIRMATIONS: '19',
+    CHAINPAY_WEBHOOK_SECRET: 'x'.repeat(40), TRON_NETWORK: 'mainnet', TRON_USDT_CONTRACT: contract, TRON_MIN_CONFIRMATIONS: '19',
   };
   const config = { get: (key: string) => configValues[key] };
   const tron = { verifyTransfer: options.tronUnavailable ? vi.fn(async () => { throw new Error('tron_api_unavailable'); }) : vi.fn(async () => ({ transactionHash: txHash, recipientAddress: recipient, tokenContract: contract, amount: options.tronAmount ?? '12.345678', blockNumber: 100, confirmations: 19, transferIndex: 0, executionStatus: 'SUCCESS' })) };
@@ -166,5 +167,32 @@ describe('DepositsService', () => {
     } }));
     await expect(service.reviewDeposit(String(docs[0]._id), 'reject', 'Provider evidence does not match.', { id: 'admin-1', email: 'admin@example.com' })).resolves.toMatchObject({ status: 'rejected' });
     expect(audit.create).toHaveBeenCalledWith([expect.objectContaining({ action: 'deposit.review.reject', actorId: 'admin-1' })], { session });
+  });
+
+  it.each(['pending', 'confirmed', 'failed', 'expired', 'invalid', 'unexpected'])('admin retry queues a %s provider event for reconciliation', async (providerStatus) => {
+    const { service, docs, events, audit } = setup();
+    await service.acceptWebhook({ ...validPayload, status: providerStatus, chain: 'wrong-network' });
+    const event = docs[0];
+    expect(event.status).toBe('review_required');
+    const session = { withTransaction: async (callback: () => Promise<void>) => callback(), endSession: vi.fn(async () => undefined) };
+    (events as any).db = { startSession: vi.fn(async () => session) };
+    (events as any).findOneAndUpdate = vi.fn((query: Record<string, any>, update: Record<string, any>) => ({ exec: async () => {
+      if (query.status === 'review_required' && event.status === 'review_required') {
+        Object.assign(event, update.$set);
+        return event;
+      }
+      const retryEligible = event.retryRequested === true && event.status === 'pending';
+      if (retryEligible) {
+        Object.assign(event, update.$set);
+        event.reconciliationAttempts += Number(update.$inc?.reconciliationAttempts ?? 0);
+        return event;
+      }
+      return null;
+    } }));
+    await expect(service.reviewDeposit(String(event._id), 'retry_verification', 'Inspect again.', { id: 'admin-1', email: 'admin@example.com' })).resolves.toMatchObject({ status: 'pending' });
+    expect(event.retryRequested).toBe(true);
+    expect(audit.create).toHaveBeenCalledWith([expect.objectContaining({ action: 'deposit.review.retry_verification' })], { session });
+    await expect(service.reconcile(String(event._id))).resolves.toMatchObject({ reconciled: true, credited: true });
+    expect(event.status).toBe('verified_pending_credit');
   });
 });

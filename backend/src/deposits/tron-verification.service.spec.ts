@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { tronAddressToHex } from '../providers/chainpay/chainpay.service.js';
 import { TronVerificationService } from './tron-verification.service.js';
+import { TRON_MAINNET_USDT_CONTRACT, TRON_MAINNET_NETWORK, TRONGRID_MAINNET_API_URL } from './tron-network.js';
 
 const hash = 'a'.repeat(64);
 const recipient = 'T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb';
-const token = 'TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj';
+const token = TRON_MAINNET_USDT_CONTRACT;
 const signature = 'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const topicAddress = (address: string) => `0x${address.padStart(64, '0')}`;
-const service = (minimum = '19') => new TronVerificationService({ get: (key: string) => key === 'TRON_MIN_CONFIRMATIONS' ? minimum : undefined } as never);
+const service = (minimum = '19') => new TronVerificationService({ get: (key: string) => ({ TRON_MIN_CONFIRMATIONS: minimum, TRON_NETWORK: TRON_MAINNET_NETWORK, TRON_API_URL: TRONGRID_MAINNET_API_URL, TRONGRID_API_KEY: 'unit-test-key' })[key] } as never);
 
 function mockChain(overrides: { id?: string; execution?: string; blockNumber?: number; head?: number; contract?: string; to?: string; data?: string } = {}) {
   const fetch = vi.fn(async (input: RequestInfo | URL) => {
@@ -48,7 +49,7 @@ describe('TronVerificationService', () => {
 
   it('rejects a wrong token contract and wrong recipient', async () => {
     mockChain();
-    await expect(service().verifyTransfer({ transactionHash: hash, expectedRecipient: recipient, expectedTokenContract: recipient })).rejects.toThrow(/matching_usdt_transfer_not_found/);
+    await expect(service().verifyTransfer({ transactionHash: hash, expectedRecipient: recipient, expectedTokenContract: recipient })).rejects.toThrow(/untrusted_usdt_contract/);
     mockChain({ to: tronAddressToHex(recipient) });
     await expect(service().verifyTransfer({ transactionHash: hash, expectedRecipient: token, expectedTokenContract: token })).rejects.toThrow(/matching_usdt_transfer_not_found/);
   });

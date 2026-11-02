@@ -27,6 +27,7 @@ export class ProviderDeposit {
   @Prop({ type: String, default: '' }) reviewReason!: string;
   @Prop({ type: Number, default: 1 }) deliveries!: number;
   @Prop({ type: Number, default: 0 }) reconciliationAttempts!: number;
+  @Prop({ type: Boolean, default: false }) retryRequested!: boolean;
   @Prop({ type: Date, default: Date.now, index: true }) nextAttemptAt!: Date;
 }
 export const ProviderDepositSchema = SchemaFactory.createForClass(ProviderDeposit);

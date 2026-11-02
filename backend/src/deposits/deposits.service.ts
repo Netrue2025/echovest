@@ -10,6 +10,7 @@ import { DepositCreditService } from './deposit-credit.service.js';
 import { ProviderDeposit } from './provider-deposit.schema.js';
 import { TronVerificationService } from './tron-verification.service.js';
 import { usdtToMicros } from './deposit-amount.js';
+import { isOfficialTronMainnetUsdtContract } from './tron-network.js';
 
 type ChainPayEvent = Record<string, unknown>;
 type AdminActor = { id: string; email: string };
@@ -56,9 +57,9 @@ export class DepositsService implements OnModuleInit, OnModuleDestroy {
       && this.config.get<string>('CHAINPAY_LIVE_DEPOSITS_ENABLED') === 'true';
   }
 
-  validSecret(candidate: string | undefined) {
+  validSecret(candidate: unknown) {
     const expected = this.config.get<string>('CHAINPAY_WEBHOOK_SECRET') ?? '';
-    return Boolean(expected && candidate && constantTimeMatch(candidate, expected));
+    return Boolean(expected && typeof candidate === 'string' && constantTimeMatch(candidate, expected));
   }
 
   onModuleInit() {
@@ -75,7 +76,7 @@ export class DepositsService implements OnModuleInit, OnModuleDestroy {
     if (!this.isLiveChainPayEnabled()) return;
     const staleBefore = new Date(Date.now() - 60_000);
     await this.events.updateMany({ status: 'reconciling', updatedAt: { $lt: staleBefore } }, { $set: { status: 'review_required', reason: 'Worker restarted while reconciliation was running; administrator review required.' } }).exec();
-    const work = await this.events.find({ providerStatus: 'confirmed', status: 'pending', nextAttemptAt: { $lte: new Date() } }).select('_id').limit(25).lean().exec();
+    const work = await this.events.find({ status: 'pending', nextAttemptAt: { $lte: new Date() }, $or: [{ providerStatus: 'confirmed' }, { retryRequested: true }] }).select('_id').limit(25).lean().exec();
     for (const item of work) await this.reconcile(String(item._id));
   }
 
@@ -90,6 +91,7 @@ export class DepositsService implements OnModuleInit, OnModuleDestroy {
     try { if (usdtToMicros(amount) <= 0n) differences.push('invalid_amount'); } catch { differences.push('invalid_amount'); }
     if (!txHashPattern.test(txHash)) differences.push('invalid_transaction_hash');
     const expectedContract = this.config.get<string>('TRON_USDT_CONTRACT')?.trim() ?? '';
+    if (!isOfficialTronMainnetUsdtContract(expectedContract)) differences.push('untrusted_configured_usdt_contract');
     if (String(payload.chain ?? '').toLowerCase() !== 'tron') differences.push('provider_network_mismatch');
     if (String(payload.tokenSymbol ?? '').toUpperCase() !== 'USDT' || payload.isNative !== false) differences.push('provider_asset_mismatch');
     if (!expectedContract || payload.tokenAddress !== expectedContract) differences.push('provider_contract_mismatch');
@@ -135,8 +137,8 @@ export class DepositsService implements OnModuleInit, OnModuleDestroy {
   async reconcile(id: string) {
     if (!this.isLiveChainPayEnabled()) return { reconciled: false, reason: 'live_deposits_disabled' };
     const event = await this.events.findOneAndUpdate(
-      { _id: id, providerStatus: 'confirmed', status: { $in: ['pending', 'reconciliation_failed'] } },
-      { $set: { status: 'reconciling' }, $inc: { reconciliationAttempts: 1 } }, { new: true },
+      { _id: id, status: { $in: ['pending', 'reconciliation_failed'] }, $or: [{ providerStatus: 'confirmed' }, { retryRequested: true }] },
+      { $set: { status: 'reconciling', retryRequested: false }, $inc: { reconciliationAttempts: 1 } }, { new: true },
     ).exec();
     if (!event) return { reconciled: false, reason: 'event_not_eligible' };
     const account = await this.accounts.findById(event.depositAccountId).exec();
@@ -165,8 +167,9 @@ export class DepositsService implements OnModuleInit, OnModuleDestroy {
         recipientAddress: firstString(row, ['depositAddress', 'recipientAddress', 'recipient', 'toAddress', 'address']),
         amount: firstString(row, ['amount']),
       };
-      const expectedContract = this.config.get<string>('TRON_USDT_CONTRACT')?.trim() ?? '';
       const differences: string[] = [];
+      const expectedContract = this.config.get<string>('TRON_USDT_CONTRACT')?.trim() ?? '';
+      if (!isOfficialTronMainnetUsdtContract(expectedContract)) differences.push('untrusted_configured_usdt_contract');
       if (provider.transactionHash.toLowerCase() !== event.providerTransactionId.toLowerCase()) differences.push('provider_transaction_hash_mismatch');
       if (!['confirmed', 'swept'].includes(provider.status)) differences.push('provider_status_not_confirmed');
       if (provider.externalReference !== event.externalReference) differences.push('provider_reference_mismatch');
@@ -235,7 +238,7 @@ export class DepositsService implements OnModuleInit, OnModuleDestroy {
     if (!event) throw new NotFoundException('Deposit review item not found.');
     const update = action === 'reject'
       ? { status: 'rejected', reviewedBy: actor.id, reviewDecision: action, reviewReason: reason.trim(), reason: `Rejected by admin: ${reason.trim()}` }
-      : { status: 'pending', nextAttemptAt: new Date(), reviewedBy: actor.id, reviewDecision: action, reviewReason: reason.trim(), reason: `Reverification requested by admin: ${reason.trim()}` };
+      : { status: 'pending', retryRequested: true, nextAttemptAt: new Date(), reviewedBy: actor.id, reviewDecision: action, reviewReason: reason.trim(), reason: `Reverification requested by admin: ${reason.trim()}` };
     const session = await this.events.db.startSession();
     let changed = false;
     try {

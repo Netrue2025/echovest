@@ -2,6 +2,7 @@ import { BadGatewayException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import { isIP } from 'node:net';
+import { isOfficialTronMainnetUsdtContract, TRON_MAINNET_NETWORK } from '../../deposits/tron-network.js';
 
 export type ChainPayAddress = { id: string; address: string; ticker?: string; chain?: string; externalReference?: string };
 const base58Alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
@@ -26,7 +27,7 @@ export function tronAddressToHex(address: string) {
   const decoded = Buffer.from(hex, 'hex');
   return decoded.subarray(1, 21).toString('hex').toLowerCase();
 }
-function isPrivateCallbackHost(hostname: string) {
+export function isPrivateCallbackHost(hostname: string) {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return true;
   const version = isIP(host);
@@ -53,9 +54,9 @@ export class ChainPayService {
     let callback: URL;
     try { callback = new URL(callbackUrl); } catch { throw new BadGatewayException('ChainPay callback URL is invalid.'); }
     if (callback.protocol !== 'https:' || isPrivateCallbackHost(callback.hostname)) throw new BadGatewayException('ChainPay callback URL must be publicly reachable over HTTPS.');
-    if (callback.pathname !== '/api/webhooks/chainpay' || webhookSecret.length < 32) throw new BadGatewayException('ChainPay callback path or webhook secret is invalid.');
+    if (callback.pathname !== '/api/webhooks/chainpay' || callback.search || callback.hash || webhookSecret.length < 32) throw new BadGatewayException('ChainPay callback path or webhook secret is invalid.');
     if (!isValidTronAddress(forwardAddress)) throw new BadGatewayException('ChainPay forwarding address must be a valid TRON address.');
-    if (!isValidTronAddress(tokenContract)) throw new BadGatewayException('TRON_USDT_CONTRACT must be a verified TRON contract address.');
+    if (this.config.get<string>('TRON_NETWORK') !== TRON_MAINNET_NETWORK || !isOfficialTronMainnetUsdtContract(tokenContract) || !isValidTronAddress(tokenContract)) throw new BadGatewayException('Only the pinned official USDT contract on TRON mainnet is supported.');
     callback.searchParams.set('token', webhookSecret);
 
     const controller = new AbortController();

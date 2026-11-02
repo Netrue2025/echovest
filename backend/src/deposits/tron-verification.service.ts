@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { isValidTronAddress, tronAddressToHex } from '../providers/chainpay/chainpay.service.js';
+import { isOfficialTronMainnetUsdtContract, TRON_MAINNET_NETWORK, TRONGRID_MAINNET_API_URL } from './tron-network.js';
 
 const transferTopic = 'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const hashPattern = /^[a-f0-9]{64}$/i;
@@ -33,7 +34,9 @@ export class TronVerificationService {
   constructor(private readonly config: ConfigService) {}
 
   private async post(path: string, body: Record<string, string>) {
-    const base = (this.config.get<string>('TRON_API_URL') || 'https://api.trongrid.io').replace(/\/$/, '');
+    const base = (this.config.get<string>('TRON_API_URL') || TRONGRID_MAINNET_API_URL).replace(/\/$/, '');
+    if (this.config.get<string>('TRON_NETWORK') !== TRON_MAINNET_NETWORK || base !== TRONGRID_MAINNET_API_URL) throw new Error('unsupported_tron_network_configuration');
+    if (!this.config.get<string>('TRONGRID_API_KEY')?.trim()) throw new Error('trongrid_api_key_missing');
     const url = new URL(`${base}${path}`);
     if (url.protocol !== 'https:') throw new Error('tron_api_must_use_https');
     const apiKey = this.config.get<string>('TRONGRID_API_KEY')?.trim();
@@ -49,6 +52,7 @@ export class TronVerificationService {
   async verifyTransfer(input: { transactionHash: string; expectedRecipient: string; expectedTokenContract: string }): Promise<VerifiedTronTransfer> {
     const transactionHash = input.transactionHash.trim().toLowerCase();
     if (!hashPattern.test(transactionHash)) throw new Error('invalid_transaction_hash');
+    if (!isOfficialTronMainnetUsdtContract(input.expectedTokenContract)) throw new Error('untrusted_usdt_contract');
     const recipientHex = tronAddressToHex(input.expectedRecipient);
     const contractHex = tronAddressToHex(input.expectedTokenContract);
     if (!recipientHex || !contractHex) throw new Error('invalid_expected_tron_address');
