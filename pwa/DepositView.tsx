@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Check, Clipboard, Info, LoaderCircle, Wallet, QrCode, RefreshCw, TriangleAlert } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Clipboard, Info, LoaderCircle, QrCode, RefreshCw, TriangleAlert, Wallet } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { DepositDetails, walletRequest } from '../lib/wallet-api';
 import { NotificationBell } from './NotificationCenter';
@@ -9,10 +9,11 @@ const numberFormat = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, 
 type MockStatus = 'pending' | 'confirmed' | 'failed' | 'invalid';
 
 export function DepositView() {
+  const [step, setStep] = useState<'amount' | 'address'>('amount');
   const [details, setDetails] = useState<DepositDetails | null>(null);
   const [qr, setQr] = useState('');
   const [amount, setAmount] = useState('25.00');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
@@ -25,10 +26,38 @@ export function DepositView() {
       const qrCode = await import('qrcode');
       setQr(await qrCode.toDataURL(data.account.address, { width: 190, margin: 1, color: { dark: '#111827', light: '#ffffff' } }));
     } else setQr('');
+    return data;
   }, []);
 
-  useEffect(() => { refresh().catch((cause) => setError(cause instanceof Error ? cause.message : 'Could not load your deposit account.')).finally(() => setLoading(false)); }, [refresh]);
-  useEffect(() => { const timer = window.setInterval(() => { refresh().catch(() => undefined); }, 15_000); return () => window.clearInterval(timer); }, [refresh]);
+  useEffect(() => {
+    if (step !== 'address') return;
+    const timer = window.setInterval(() => { refresh().catch(() => undefined); }, 15_000);
+    return () => window.clearInterval(timer);
+  }, [refresh, step]);
+
+  async function continueToAddress() {
+    if (!/^(?:0|[1-9]\d{0,9})(?:\.\d{1,6})?$/.test(amount) || Number(amount) <= 0) {
+      setError('Enter an amount greater than zero with up to 6 decimal places.');
+      return;
+    }
+    setLoading(true); setError(''); setNotice('');
+    try {
+      const data = await refresh();
+      if (data.liveDepositsDisabled) {
+        setError('Live deposits are not enabled on this server yet. Do not send funds.');
+        return;
+      }
+      if (data.account.status !== 'active' || !data.account.address) {
+        setError('Your deposit address is not ready yet. Please try again shortly.');
+        return;
+      }
+      setStep('address');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not prepare your deposit address.');
+    } finally { setLoading(false); }
+  }
+
+  function editAmount() { setStep('amount'); setError(''); setNotice(''); }
 
   async function copyAddress() {
     if (!details?.account.address || details.mode !== 'chainpay') return;
@@ -58,33 +87,44 @@ export function DepositView() {
     <div className="dash-deposit-layout"><div className="dash-deposit-main">
       <aside className={`dash-deposit-notice ${isMock ? 'dash-prototype-notice' : ''}`}>
         {isMock ? <TriangleAlert size={20} /> : <Info size={20} />}
-        <div><strong>{isMock ? 'TEST MODE — no real funds' : 'Prototype integration notice'}</strong>
-          <p>{isMock ? 'This is a simulated deposit account. The TEST address is not a blockchain address. Do not send cryptocurrency to it. TEST funds cannot be withdrawn or used to trade.' : 'Live deposit crediting is not enabled. Do not send funds. ChainPay events are recorded for reconciliation only and never credit your account.'}</p>
+        <div><strong>{isMock ? 'TEST MODE — no real funds' : step === 'amount' ? 'USDT on TRON (TRC20)' : 'Send only USDT on TRON (TRC20)'}</strong>
+          <p>{isMock ? 'This is a simulated deposit account. Its TEST address is not on the blockchain. Never send cryptocurrency to it; TEST funds cannot be withdrawn or used to trade.' : step === 'amount' ? 'Choose your deposit amount, then continue to your personal deposit address.' : 'Send only USDT using the TRON (TRC20) network. Deposits are credited only after provider and network verification.'}</p>
         </div>
       </aside>
 
-      <article className="dash-panel dash-deposit-panel dash-prototype-card">
-        {loading ? <div className="dash-prototype-loading"><LoaderCircle className="admin-loading-orbit" size={21} /> Loading deposit details…</div> : details ? <>
-          <div className="dash-panel-heading"><div><h2>{isMock ? 'Your TEST deposit account' : 'Your USDT deposit account'}</h2><p>{isMock ? 'A stable development account for repeatable simulations.' : 'Permanent account · USDT on TRON (TRC20)'}</p></div><span className="dash-prototype-tag">{isMock ? 'TEST' : 'CHAINPAY'}</span></div>
-          {copy && !details.liveDepositsDisabled ? <>
-            <div className="dash-deposit-address dash-prototype-address"><div className="dash-deposit-address-icon"><Wallet size={21} /></div><div><small>PERMANENT DEPOSIT ADDRESS</small><strong>{details.account.address || 'Address is being provisioned'}</strong><span>Network: TRON (TRC20) · Asset: USDT</span></div><button type="button" onClick={copyAddress} disabled={!details.account.address}>{copied ? <Check size={17} /> : <Clipboard size={17} />} {copied ? 'Copied' : 'Copy'}</button></div>
-          </> : isMock ? <div className="dash-deposit-address dash-prototype-address"><div className="dash-deposit-address-icon"><Wallet size={21} /></div><div><small>MOCK ADDRESS · NOT ON BLOCKCHAIN</small><strong>{details.account.address}</strong><span>Use the simulation controls below. Never send USDT here.</span></div></div> : <div className="dash-prototype-loading"><Info size={19} /> Live address provisioning is disabled for this prototype.</div>}
-          {qr && <div className="dash-prototype-qr"><img src={qr} alt={isMock ? 'QR code for the TEST mock address, not a blockchain address' : 'QR code for your USDT TRON deposit address'} /><span><QrCode size={15} /> {isMock ? 'TEST only · not for sending funds' : 'Scan to copy the address'}</span></div>}
-          <div className="dash-deposit-network"><span><i />Network</span><strong>TRON (TRC20)</strong></div>
-        </> : <p className="dash-deposit-error">Deposit details are unavailable.</p>}
-      </article>
+      {step === 'amount' ? <article className="dash-panel dash-deposit-panel dash-deposit-amount-step">
+        <div className="dash-panel-heading"><div><h2>How much would you like to deposit?</h2><p>Your personal USDT/TRON address will be ready on the next step.</p></div></div>
+        <label className="dash-deposit-label" htmlFor="deposit-amount">Deposit amount</label>
+        <div className="dash-deposit-input-wrap"><input id="deposit-amount" value={amount} inputMode="decimal" autoComplete="off" onChange={(event) => setAmount(event.target.value)} placeholder="0.00" /><span>USDT</span></div>
+        <p className="dash-deposit-helper">Enter the amount you plan to send. The credited amount is based on the confirmed on-chain transfer.</p>
+        <button className="dash-deposit-submit" type="button" onClick={() => void continueToAddress()} disabled={loading}>{loading ? <><LoaderCircle size={16} className="admin-loading-orbit" /> Preparing address…</> : <>Continue <ArrowRight size={16} /></>}</button>
+        {error && <p className="dash-deposit-error" role="alert">{error}</p>}
+      </article> : <>
+        <article className="dash-panel dash-deposit-panel dash-prototype-card">
+          {details ? <>
+            <div className="dash-panel-heading"><div><h2>{isMock ? 'Your TEST deposit account' : 'Your USDT deposit account'}</h2><p>{isMock ? 'A development-only account for simulations.' : 'Permanent account · USDT on TRON (TRC20)'}</p></div><span className="dash-prototype-tag">{isMock ? 'TEST' : 'CHAINPAY'}</span></div>
+            <button type="button" className="dash-deposit-edit-amount" onClick={editAmount}><ArrowLeft size={14} /> Change amount · {numberFormat.format(Number(amount))} USDT</button>
+            {copy ? <div className="dash-deposit-address dash-prototype-address"><div className="dash-deposit-address-icon"><Wallet size={21} /></div><div><small>YOUR PERMANENT DEPOSIT ADDRESS</small><strong>{details.account.address}</strong><span>Network: TRON (TRC20) · Asset: USDT</span></div><button type="button" onClick={copyAddress} disabled={!details.account.address}>{copied ? <Check size={17} /> : <Clipboard size={17} />} {copied ? 'Copied' : 'Copy'}</button></div>
+              : <div className="dash-deposit-address dash-prototype-address"><div className="dash-deposit-address-icon"><Wallet size={21} /></div><div><small>MOCK ADDRESS — NOT ON BLOCKCHAIN</small><strong>{details.account.address}</strong><span>Use the simulation controls below. Never send USDT here.</span></div></div>}
+            {qr && <div className="dash-prototype-qr"><img src={qr} alt={isMock ? 'QR code for TEST mock address, not a blockchain address' : 'QR code for your USDT TRON deposit address'} /><span><QrCode size={15} /> {isMock ? 'TEST only · not for sending funds' : 'Scan to copy the address'}</span></div>}
+            <div className="dash-deposit-network"><span><i />Network</span><strong>TRON (TRC20)</strong></div>
+          </> : <div className="dash-prototype-loading"><LoaderCircle className="admin-loading-orbit" size={21} /> Loading deposit details…</div>}
+        </article>
 
-      {isMock && <article className="dash-panel dash-deposit-panel dash-test-wallet">
-        <div className="dash-panel-heading"><div><h2>TEST wallet balance</h2><p>Separated from your real dashboard balance.</p></div><strong>{numberFormat.format(Number(details?.testWallet.balance ?? 0))} <small>USDT</small></strong></div>
-        <div className="dash-test-wallet-lock"><Info size={15} /> TEST funds are non-withdrawable and never affect your investment or referral balances.</div>
-        <div className="dash-test-sim"><label htmlFor="test-deposit-amount">Simulation amount <span>USDT</span></label><input id="test-deposit-amount" value={amount} inputMode="decimal" onChange={(event) => setAmount(event.target.value)} />
-          <div className="dash-test-actions"><button type="button" disabled={busy || !details} onClick={() => void simulate('pending')}>Simulate pending</button><button type="button" disabled={busy || !details} onClick={() => void simulate('confirmed')}>{busy ? <LoaderCircle size={15} className="admin-loading-orbit" /> : <Check size={15} />} Simulate confirmed</button><button type="button" disabled={busy || !details} onClick={() => void simulate('failed')}>Simulate failed</button><button type="button" disabled={busy || !details} onClick={() => void simulate('invalid')}>Simulate invalid</button></div>
-          <button className="dash-test-replay" type="button" disabled={busy || !details} onClick={() => void simulate('confirmed')}><RefreshCw size={14} /> Replay confirmed event to test duplicate handling</button>
-        </div>
-      </article>}
-      {error && <p className="dash-deposit-error" role="alert">{error}</p>}{notice && <p className="dash-deposit-next-hint" role="status">{notice}</p>}
+        {isMock && <article className="dash-panel dash-deposit-panel dash-test-wallet">
+          <div className="dash-panel-heading"><div><h2>TEST wallet balance</h2><p>Separated from your real dashboard balance.</p></div><strong>{numberFormat.format(Number(details?.testWallet.balance ?? 0))} <small>USDT</small></strong></div>
+          <div className="dash-test-wallet-lock"><Info size={15} /> TEST funds are non-withdrawable and never affect your investment or referral balances.</div>
+          <div className="dash-test-sim"><label htmlFor="test-deposit-amount">Simulation amount <span>USDT</span></label><input id="test-deposit-amount" value={amount} inputMode="decimal" onChange={(event) => setAmount(event.target.value)} />
+            <div className="dash-test-actions"><button type="button" disabled={busy} onClick={() => void simulate('pending')}>Simulate pending</button><button type="button" disabled={busy} onClick={() => void simulate('confirmed')}>{busy ? <LoaderCircle size={15} className="admin-loading-orbit" /> : <Check size={15} />} Simulate confirmed</button><button type="button" disabled={busy} onClick={() => void simulate('failed')}>Simulate failed</button><button type="button" disabled={busy} onClick={() => void simulate('invalid')}>Simulate invalid</button></div>
+            <button className="dash-test-replay" type="button" disabled={busy} onClick={() => void simulate('confirmed')}><RefreshCw size={14} /> Replay confirmed event to test duplicate handling</button>
+          </div>
+        </article>}
+        {error && <p className="dash-deposit-error" role="alert">{error}</p>}{notice && <p className="dash-deposit-next-hint" role="status">{notice}</p>}
+        <article className="dash-panel dash-deposit-panel"><div className="dash-panel-heading"><div><h2>Deposit history</h2><p>{isMock ? 'TEST events only · simulated funds do not affect your real balance.' : 'Provider and network verification is required before a deposit is credited.'}</p></div></div>{history.length ? history.map((item) => <div className="dash-activity-row" key={item.id}><span className={`dash-activity-icon ${item.status === 'confirmed' || item.status === 'confirmed_uncredited' ? 'in' : ''}`}><ArrowLeft size={17} /></span><span className="dash-activity-main"><b>{numberFormat.format(Number(item.amount))} USDT deposit {item.testOnly && <small className="dash-prototype-mini-tag">TEST</small>}</b><small>{item.description}</small></span><span className="dash-activity-amount"><b className={`dash-status-label ${item.status === 'confirmed' ? 'approved' : item.status === 'failed' || item.status === 'rejected' || item.status === 'reconciliation_failed' ? 'rejected' : 'review'}`}>{item.status.replaceAll('_', ' ')}</b><small>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : ''}</small></span></div>) : <p className="dash-deposit-helper">No deposit events yet.</p>}</article>
+      </>}
+    </div>
 
-      <article className="dash-panel dash-deposit-panel"><div className="dash-panel-heading"><div><h2>Deposit history</h2><p>{isMock ? 'TEST events only · pending and failed events do not change the TEST balance.' : 'Provider events are not credited in prototype mode.'}</p></div></div>{history.length ? history.map((item) => <div className="dash-activity-row" key={item.id}><span className={`dash-activity-icon ${item.status === 'confirmed' || item.status === 'confirmed_uncredited' ? 'in' : ''}`}><ArrowLeft size={17} /></span><span className="dash-activity-main"><b>{numberFormat.format(Number(item.amount))} USDT deposit {item.testOnly && <small className="dash-prototype-mini-tag">TEST</small>}</b><small>{item.description}</small></span><span className="dash-activity-amount"><b className={`dash-status-label ${item.status === 'confirmed' ? 'approved' : item.status === 'failed' || item.status === 'rejected' || item.status === 'reconciliation_failed' ? 'rejected' : 'review'}`}>{item.status.replaceAll('_', ' ')}</b><small>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : ''}</small></span></div>) : <p className="dash-deposit-helper">No deposit events yet.</p>}</article>
-    </div><aside className="dash-panel dash-deposit-status"><span className="dash-overline">DEPOSIT STATUS</span><h2>How this prototype works</h2><div className="dash-deposit-timeline"><div className="completed"><i><Check size={13} /></i><span><strong>Permanent account</strong><small>Your USDT/TRON account is reused between visits.</small></span></div><div><i>2</i><span><strong>Network confirmation</strong><small>{isMock ? 'Simulate pending, confirmed, failed, or invalid events in development.' : 'ChainPay events require independent provider reconciliation.'}</small></span></div><div><i>3</i><span><strong>TEST ledger only</strong><small>Simulated funds remain isolated and cannot be withdrawn.</small></span></div></div></aside></div>
+    <aside className="dash-panel dash-deposit-status"><span className="dash-overline">DEPOSIT STATUS</span><h2>{step === 'amount' ? 'Deposit steps' : 'What happens next'}</h2><div className="dash-deposit-timeline"><div className={step === 'amount' ? 'current' : 'completed'}><i>{step === 'amount' ? '1' : <Check size={13} />}</i><span><strong>Enter amount</strong><small>Choose how much USDT you plan to send.</small></span></div><div className={step === 'address' ? 'current' : ''}><i>2</i><span><strong>Get your address</strong><small>Your permanent deposit address is assigned to your account.</small></span></div><div><i>3</i><span><strong>Confirm on network</strong><small>Provider and blockchain verification happen before crediting.</small></span></div></div></aside>
+    </div>
   </section>;
 }
