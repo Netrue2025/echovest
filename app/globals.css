@@ -490,6 +490,8 @@ body{overflow-x:hidden}@media(max-width:900px){.grid-lines>.container{grid-templ
 .dash-notification-modal h2{margin:7px 35px 9px 0;color:#22292F;font-size:20px;letter-spacing:-.02em}
 .dash-notification-modal>p{margin:0;color:#626D75;font-size:13px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
 .dash-notification-modal-done{width:100%;min-height:42px;margin-top:22px;border:0;border-radius:10px;background:#F0B90B;color:#26292C;font-size:12px;font-weight:750}
+.dash-notification-modal-backdrop{z-index:10000;height:100vh;height:100dvh;overflow-y:auto;padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom))}
+.dash-notification-modal{max-height:calc(100vh - 24px);max-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 24px);overflow-y:auto;overscroll-behavior:contain}
 .admin-broadcast-form{display:grid;gap:15px;max-width:780px}
 .admin-broadcast-form>.admin-panel-head{margin-bottom:2px}
 .admin-broadcast-form .admin-panel-head h2{font-size:14px}
