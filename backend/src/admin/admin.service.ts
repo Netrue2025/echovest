@@ -58,8 +58,9 @@ export class AdminService implements OnModuleInit {
   async overview(days = 30) {
     if (![7, 30, 90, 365].includes(days)) throw new BadRequestException('Choose a supported overview period.');
     const start = new Date(); start.setUTCHours(0, 0, 0, 0); start.setUTCDate(start.getUTCDate() - days + 1);
-    const [registeredUsers, walletRows, financeTotals, chainpayTotals, financeDaily, chainpayDaily] = await Promise.all([
+    const [registeredUsers, referralCount, walletRows, financeTotals, chainpayTotals, financeDaily, chainpayDaily] = await Promise.all([
       this.userModel.countDocuments({ role: 'user' }).exec(),
+      this.userModel.countDocuments({ role: 'user', referredBy: { $ne: null } }).exec(),
       this.userModel.aggregate([{ $match: { role: 'user' } }, { $group: { _id: null, trading: { $sum: '$tradingBalance' }, referral: { $sum: '$referralBalance' } } }]).exec(),
       this.transactions.aggregate([{ $match: { status: 'approved', createdAt: { $gte: start } } }, { $group: { _id: { type: '$type' }, total: { $sum: '$amount' } } }]).exec(),
       this.providerDeposits.aggregate([{ $match: { status: 'credited', creditedAt: { $gte: start } } }, { $group: { _id: null, total: { $sum: { $toDouble: '$amount' } } } }]).exec(),
@@ -73,7 +74,7 @@ export class AdminService implements OnModuleInit {
     const totals: Record<string, number> = { deposit: Number(chainpayTotals[0]?.total ?? 0), withdrawal: 0 };
     for (const row of financeTotals) totals[row._id.type] = (totals[row._id.type] ?? 0) + Number(row.total);
     const wallets = walletRows[0] ?? { trading: 0, referral: 0 };
-    return { periodDays: days, registeredUsers, walletBalance: Number(wallets.trading ?? 0) + Number(wallets.referral ?? 0), tradingBalance: Number(wallets.trading ?? 0), referralBalance: Number(wallets.referral ?? 0), deposits: totals.deposit ?? 0, withdrawals: totals.withdrawal ?? 0, daily: [...daily.values()] };
+    return { periodDays: days, registeredUsers, referralCount, walletBalance: Number(wallets.trading ?? 0) + Number(wallets.referral ?? 0), tradingBalance: Number(wallets.trading ?? 0), referralBalance: Number(wallets.referral ?? 0), deposits: totals.deposit ?? 0, withdrawals: totals.withdrawal ?? 0, daily: [...daily.values()] };
   }
   async listUserBalances() {
     const users = await this.userModel.find({ role: 'user' }).select('fullName email tradingBalance referralBalance createdAt').sort({ createdAt: -1 }).lean().exec();
