@@ -234,13 +234,66 @@ function ReferralsView({ balance }: { balance: number }) {
 
 function LevelsView() {
   const levels = [
-    { name: "Blue", icon: ShieldCheck, tone: "blue" },
-    { name: "Elite", icon: Medal, tone: "elite" },
-    { name: "Silver", icon: Award, tone: "silver" },
-    { name: "Gold", icon: Crown, tone: "gold" },
-    { name: "Platinum", icon: Gem, tone: "platinum" },
+    { name: "Blue", icon: ShieldCheck, tone: "blue", qualification: "Your starting membership level.", benefit: "Base access to copy signals and referrals." },
+    { name: "Elite", icon: Medal, tone: "elite", qualification: "Meet the qualifying deposit or referral threshold.", benefit: "A slightly improved referral commission tier." },
+    { name: "Silver", icon: Award, tone: "silver", qualification: "Meet a higher qualifying deposit or team-volume threshold.", benefit: "Access to more signal categories." },
+    { name: "Gold", icon: Crown, tone: "gold", qualification: "Meet the Gold deposit or team-volume threshold.", benefit: "An increased commission tier and faster withdrawal review." },
+    { name: "Platinum", icon: Gem, tone: "platinum", qualification: "Meet the top-tier deposit or team-volume threshold.", benefit: "The maximum commission tier and dedicated support." },
   ];
-  return <><PageHeading title="Membership level" subtitle="See your current level and learn how progression works." /><article className="dash-level-card"><div className="dash-level-emblem"><ShieldCheck size={31} /></div><div><span className="dash-overline">CURRENT LEVEL</span><h2>Blue</h2><p>Blue is your starting membership level.</p></div><span className="dash-level-chip">Active</span></article><article className="dash-panel dash-full-panel dash-level-info"><h2>Level progression</h2><p>EchoVest levels are Blue, Elite, Silver, Gold, and Platinum. You can qualify through team activity or a qualifying buy-in.</p><div className="dash-level-list">{levels.map(({ name, icon: Icon, tone }, index) => <span className={`dash-level-badge ${tone}${index === 0 ? " current" : ""}`} key={name}><i><Icon size={18} strokeWidth={2} /></i><b>{name}</b>{index === 0 && <small>Current</small>}</span>)}</div><div className="dash-disclosure"><CircleHelp size={17} /><span>Specific thresholds and commission rates are being confirmed and are not displayed yet.</span></div></article></>;
+  const [overview, setOverview] = useState<ReferralOverview | null>(null);
+  const [selected, setSelected] = useState("Elite");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    referralRequest<ReferralOverview>("me")
+      .then((result) => { if (active) { setOverview(result); setError(""); const index = levels.findIndex((level) => level.name.toLowerCase() === (result.membershipLevel || "blue").trim().toLowerCase()); setSelected(levels[Math.min(Math.max(index, 0) + 1, levels.length - 1)].name); } })
+      .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Membership details are temporarily unavailable."); });
+    return () => { active = false; };
+  }, []);
+
+  const levelIndex = (name?: string) => Math.max(0, levels.findIndex((level) => level.name.toLowerCase() === (name || "blue").trim().toLowerCase()));
+  const currentIndex = levelIndex(overview?.membershipLevel);
+  const current = levels[currentIndex];
+  const selectedLevel = levels.find((level) => level.name === selected) ?? levels[Math.min(currentIndex + 1, levels.length - 1)];
+  const selectedIndex = levels.findIndex((level) => level.name === selectedLevel.name);
+  const isAchieved = selectedIndex <= currentIndex;
+  const CurrentIcon = current.icon;
+  const SelectedIcon = selectedLevel.icon;
+  const memberCount = overview ? overview.counts.tier1 + overview.counts.tier2 + overview.counts.tier3 : null;
+
+  return <>
+    <PageHeading title="Membership level" subtitle="Explore each level and see the documented ways to qualify." />
+    <article className={`dash-level-card dash-membership-current ${current.tone}`}>
+      <div className="dash-level-emblem"><CurrentIcon size={29} /></div>
+      <div><span className="dash-overline">YOUR MEMBERSHIP</span><h2>{overview ? current.name : "Loading level…"}</h2><p>{current.name === "Blue" ? "Your starting level. Choose a higher tier to see its benefits and qualification routes." : `${current.name} membership is active on your account.`}</p></div>
+      <span className="dash-level-chip">Current level</span>
+    </article>
+
+    <article className="dash-panel dash-full-panel dash-membership-panel">
+      <div className="dash-panel-heading"><div><h2>Explore membership levels</h2><p>Select a level to see what it offers and how the PRD says users can qualify.</p></div><span className="dash-membership-network"><Users size={15}/>{memberCount === null ? "Network loading" : `${memberCount} in your network`}</span></div>
+      <div className="dash-membership-levels" role="group" aria-label="Choose a membership level">
+        {levels.map(({ name, icon: Icon, tone }, index) => {
+          const reached = index <= currentIndex;
+          return <button type="button" className={`dash-membership-option ${tone}${name === selectedLevel.name ? " selected" : ""}${reached ? " reached" : ""}`} key={name} onClick={() => setSelected(name)} aria-pressed={name === selectedLevel.name}>
+            <span className="dash-membership-option-icon"><Icon size={20} strokeWidth={2}/></span><b>{name}</b><small>{index === currentIndex ? "Your level" : reached ? "Achieved" : "Explore level"}</small>
+          </button>;
+        })}
+      </div>
+      <section className={`dash-level-guidance ${selectedLevel.tone}`} aria-live="polite">
+        <div className="dash-level-guidance-head"><span className="dash-level-guidance-icon"><SelectedIcon size={24}/></span><div><span className="dash-overline">{isAchieved ? (selectedIndex === currentIndex ? "CURRENT MEMBERSHIP" : "LEVEL ALREADY ACHIEVED") : "LEVEL DETAILS"}</span><h3>{selectedLevel.name}</h3></div><span className="dash-level-guidance-benefit">{selectedLevel.benefit}</span></div>
+        {isAchieved ? <p className="dash-membership-achieved"><Check size={17}/>{selectedIndex === currentIndex ? "This level is active on your account." : `You have already reached ${selectedLevel.name}. Select a higher level to explore the next step.`}</p> : <>
+          <p className="dash-level-qualification">{selectedLevel.qualification}</p>
+          <div className="dash-upgrade-routes">
+            <div className="dash-upgrade-route"><span className="dash-upgrade-route-number">01</span><div><h4>Grow through your referral team</h4><p>Invite people with your referral link and maintain the trading activity required by the programme. Your network currently has {overview ? `${overview.counts.tier1} direct, ${overview.counts.tier2} second-tier and ${overview.counts.tier3} third-tier members` : "a loading member count"}; the app does not yet calculate qualification progress.</p><a href="/dashboard?view=referrals">View your referrals <ArrowRight size={15}/></a></div></div>
+            <div className="dash-upgrade-route"><span className="dash-upgrade-route-number">02</span><div><h4>Ask about a qualifying buy-in</h4><p>The PRD also allows a qualifying lump-sum buy-in. Confirm the level amount and eligibility with support before depositing; a normal deposit does not automatically upgrade your membership.</p><a href="/dashboard?view=help">Ask support about eligibility <ArrowRight size={15}/></a></div></div>
+          </div>
+          <p className="dash-membership-retention"><Sparkles size={15}/>The PRD says a qualifying buy-in is permanent. Organic progression can depend on continued trading activity.</p>
+        </>}
+      </section>
+      <div className="dash-disclosure dash-membership-disclosure"><CircleHelp size={17}/><span>Exact deposit and team-volume thresholds, commission percentages, and automatic progress tracking are not configured yet. We show the documented routes without estimating amounts or promising an upgrade.</span></div>
+      {error && <p className="dash-deposit-helper" role="status">Your membership level could not be loaded, so Blue is shown as the default. {error}</p>}
+    </article>
+  </>;
 }
 
 function TransactionsView({ finance }: { finance: FinanceSummary }) {
