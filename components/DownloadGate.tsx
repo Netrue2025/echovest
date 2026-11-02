@@ -2,6 +2,7 @@
 
 import { Download, Smartphone } from "lucide-react";
 import { useEffect, useState } from "react";
+import { savePendingReferral } from "../lib/referral-install";
 
 type InstallPrompt = Event & {
   prompt: () => Promise<void>;
@@ -14,8 +15,15 @@ export function DownloadGate() {
   const [helpText, setHelpText] = useState("");
   const [installed, setInstalled] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [referralCode, setReferralCode] = useState("");
 
   useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("ref");
+    if (code) {
+      const saved = savePendingReferral(code);
+      setReferralCode(saved);
+      if (saved) { setHelpText("Install EchoVest, then open the app from your home screen. Your saved referral code will be ready on the registration form."); setHelpOpen(true); }
+    }
     const isStandalone = window.matchMedia("(display-mode: standalone)").matches ||
       ("standalone" in window.navigator && Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone));
     setInstalled(isStandalone);
@@ -56,6 +64,7 @@ export function DownloadGate() {
   }
 
   return <div className="landing-install-card" id="download">
+    {referralCode && <div className="landing-referral-install-note" role="status"><strong>Referral code {referralCode} saved</strong><span>Install EchoVest, then open it to continue registration with this referral already filled in.</span></div>}
     <div className="landing-install-copy"><span className="landing-install-icon"><Smartphone size={18} /></span><div><strong>{installed ? "EchoVest is installed" : "Get EchoVest on your phone"}</strong><small>{installed ? "Launch it from your home screen to continue." : "Install the app-like PWA directly from this page."}</small></div></div>
     <div className="landing-install-actions">
       <button type="button" className="landing-install-button" onClick={install} disabled={busy} aria-expanded={helpOpen}>

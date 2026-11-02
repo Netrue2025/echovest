@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { getPendingReferral, isStandalonePwa } from "../lib/referral-install";
 
 const slides = [
   {
@@ -37,6 +38,14 @@ export function WelcomeCarousel() {
   const [reducedMotion, setReducedMotion] = useState(false);
   const [resetKey, setResetKey] = useState(0);
   const gesture = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const pendingReferral = getPendingReferral();
+    if (pendingReferral && isStandalonePwa()) {
+      window.location.replace(`/sign-up?ref=${encodeURIComponent(pendingReferral)}`);
+      return;
+    }
+  }, []);
 
   useEffect(() => {
     const onVisibilityChange = () => setHidden(document.hidden);

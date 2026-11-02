@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { countries } from "../lib/countries";
 import { authRequest } from "../lib/auth-api";
 import { AppPreloader } from "../components/AppPreloader";
+import { clearPendingReferral, getPendingReferral, isStandalonePwa, savePendingReferral } from "../lib/referral-install";
 
 function PasswordField({ id, label, placeholder, value, onChange, autoComplete }: {
   id: string; label: string; placeholder: string; value: string; onChange: (value: string) => void; autoComplete: string;
@@ -44,7 +45,16 @@ export function SignUpPage() {
 
   useEffect(() => {
     const inviteCode = new URLSearchParams(window.location.search).get("ref");
-    if (inviteCode) setReferralCode(inviteCode.trim().toUpperCase());
+    if (inviteCode) {
+      const savedCode = savePendingReferral(inviteCode);
+      if (!isStandalonePwa()) {
+        window.location.replace(`/?ref=${encodeURIComponent(savedCode)}#download`);
+        return;
+      }
+      setReferralCode(savedCode);
+    } else {
+      setReferralCode(getPendingReferral());
+    }
   }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -63,6 +73,7 @@ export function SignUpPage() {
     try {
       const email = String(formData.get("email") ?? "").trim().toLowerCase();
       await authRequest("signup", { fullName: formData.get("name"), email, password, passwordConfirmation: confirmPassword, referralCode: String(formData.get("referralCode") ?? "").trim() || undefined });
+      clearPendingReferral();
       sessionStorage.setItem("echovest-pending-email", email);
       router.push("/verify-email");
     } catch (error) {
