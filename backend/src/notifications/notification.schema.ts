@@ -18,7 +18,8 @@ UserNotificationSchema.index({ userId: 1, createdAt: -1 });
 
 @Schema({ timestamps: true, collection: 'push_subscriptions' })
 export class PushSubscriptionRecord {
-  @Prop({ type: Types.ObjectId, required: true, index: true }) userId!: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, default: null, index: true }) userId?: Types.ObjectId | null;
+  @Prop({ type: Types.ObjectId, default: null, index: true }) guestConversationId?: Types.ObjectId | null;
   @Prop({ required: true, unique: true }) endpoint!: string;
   @Prop({ required: true }) p256dh!: string;
   @Prop({ required: true }) auth!: string;

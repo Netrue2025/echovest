@@ -2,7 +2,7 @@
 
 import {
   ArrowDownLeft, ArrowRight, ArrowUpRight, Award, Check, ChevronDown, Clock3, Copy, LockKeyhole,
-  CircleHelp, Crown, Gem, Home, LogOut, Medal, Menu, ReceiptText, Settings, ShieldCheck, CalendarDays,
+  CircleHelp, Crown, Gem, Headphones, Home, LogOut, Medal, Menu, ReceiptText, Settings, ShieldCheck, CalendarDays,
   Sparkles, Users, Wallet, X, Zap, User, Plus, Link2, Share2, UserPlus, Coins,
 } from "lucide-react";
 import { type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from "react";
@@ -18,6 +18,7 @@ import { NotificationBell, NotificationProvider, NotificationsPage } from "./Not
 import { referralRequest, ReferralOverview } from "../lib/referral-api";
 import { CopyTradeSignal, TradeDashboard, TradePosition, tradeRequest } from "../lib/trading-api";
 import { withdrawalScheduleLabel } from "../lib/withdrawal-schedule";
+import { SupportChat } from "./SupportChat";
 
 const navItems = [
   { id: "overview", label: "Overview", icon: Home },
@@ -305,7 +306,8 @@ function SettingsView({ email, name, onSignOut }: { email: string; name: string;
 }
 
 function HelpView() {
-  return <><PageHeading title="Help & support" subtitle="Quick answers for the main areas of your EchoVest account." /><div className="dash-help-grid">{[["Account access", "Sign-in and account recovery options will appear here."], ["Wallet and transactions", "Learn how deposits, withdrawals, and status updates work."], ["Copy trading", "Review how to choose an allocation and manage copied strategies."], ["Referral network", "Understand your referral tiers and earnings summary."]].map(([title, copy]) => <article className="dash-panel" key={title}><span className="dash-help-icon"><CircleHelp size={18} /></span><h2>{title}</h2><p>{copy}</p></article>)}</div><div className="dash-disclosure"><CircleHelp size={17} /><span>Support contact details will be added when the support channel is confirmed.</span></div></>;
+  const topics = [["Account access", "Sign-in, verification, and account recovery."], ["Wallet and transactions", "Deposits, withdrawals, and transaction updates."], ["Copy trading", "Joining, managing, and stopping a copied trade."], ["Referrals and membership", "Referral earnings, network activity, and levels."]];
+  return <><PageHeading title="Help & support" subtitle="Find an answer or chat privately with the EchoVest support team." /><section className="dash-support-hero"><div className="dash-support-hero-icon"><Headphones size={24}/></div><div><span className="dash-overline">WE’RE HERE TO HELP</span><h2>Talk to the EchoVest team</h2><p>Send a message and continue the conversation in this secure chat. Turn on push alerts to hear back while the app is closed.</p></div><SupportChat mode="account" label="Start a chat" /></section><div className="dash-support-section-heading"><div><span className="dash-overline">QUICK HELP</span><h2>What can we help with?</h2></div><p>Choose a topic, then message us if you need more help.</p></div><div className="dash-help-grid dash-support-topics">{topics.map(([title, copy], index) => <article className="dash-panel" key={title}><span className="dash-help-icon"><CircleHelp size={18} /></span><small>0{index + 1}</small><h2>{title}</h2><p>{copy}</p></article>)}</div><div className="dash-support-footnote"><ShieldCheck size={16}/><span>Your support conversation is visible to you and authorized EchoVest administrators only.</span></div></>;
 }
 
 export function Dashboard({ initialView = "overview" }: { initialView?: string }) {

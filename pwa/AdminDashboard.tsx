@@ -4,12 +4,13 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowDownLeft, ArrowRight, ArrowUpRight, BarChart3, Check, ChevronDown, ClipboardList,
   Bell, Download, LayoutDashboard, LockKeyhole, LogOut, Megaphone, Search, ShieldCheck, Signal,
-  UserRound, Users, Wallet, X, Landmark, TrendingUp, type LucideIcon,
+  UserRound, Users, Wallet, X, Landmark, TrendingUp, MessageCircle, Send, type LucideIcon,
 } from "lucide-react";
 import { adminRequest } from "../lib/admin-api";
 import { financeRequest } from "../lib/finance-api";
-import { notificationRequest } from "../lib/notification-api";
+import { notificationRequest, vapidKeyToBytes } from "../lib/notification-api";
 import { referralRequest } from "../lib/referral-api";
+import { SupportConversation, SupportMessage } from "../lib/support-api";
 import { AdminTradeManager } from "./AdminTradeManager";
 
 type AdminActor = { id: string; fullName: string; email: string; isSuperAdmin: boolean; permissions: string[] };
@@ -29,6 +30,7 @@ const permissionGroups = [
   { id: "users", label: "User accounts", description: "Search and manage registered users", permissions: [{ code: "users.view", label: "View users" }, { code: "users.manage", label: "Edit, disable, reset passwords, and delete users" }] },
   { id: "wallets", label: "Wallets and finance", description: "Manage wallet settings and transaction operations", permissions: [{ code: "wallets.view", label: "View wallets and finance settings" }, { code: "wallets.manage", label: "Edit deposit wallet details and transaction limits" }, { code: "wallets.adjust", label: "Adjust user wallet balances" }, { code: "deposits.manage", label: "Review and approve deposits" }, { code: "withdrawals.manage", label: "Review withdrawals and manage withdrawal access" }] },
   { id: "notifications", label: "Notifications", description: "Send important messages to registered users", permissions: [{ code: "notifications.manage", label: "Broadcast notifications to users" }] },
+  { id: "support", label: "Customer support", description: "Read and reply to user and guest chats", permissions: [{ code: "support.manage", label: "Manage support conversations" }] },
   { id: "trading", label: "Copy trading", description: "Manage copy-trading signals and strategies", permissions: [{ code: "signals.manage", label: "Manage signals" }] },
   { id: "referrals", label: "Referrals and levels", description: "View referral networks and configure referral commissions", permissions: [{ code: "referrals.view", label: "View referrals and levels" }, { code: "referrals.manage", label: "Configure referral commission rates" }] },
   { id: "oversight", label: "Reports and audit", description: "View reports and administrative audit records", permissions: [{ code: "reports.view", label: "View reports" }, { code: "audit.view", label: "View audit log" }] },
@@ -43,6 +45,7 @@ const sections: { id: string; label: string; icon: LucideIcon; permission: strin
   { id: "withdrawals", label: "Withdrawals", icon: ArrowUpRight, permission: "withdrawals.manage" },
   { id: "wallets", label: "Wallets", icon: Wallet, permission: "wallets.view" },
   { id: "notifications", label: "Notifications", icon: Bell, permission: "notifications.manage" },
+  { id: "support", label: "Support chats", icon: MessageCircle, permission: "support.manage" },
   { id: "signals", label: "Copy signals", icon: Signal, permission: "signals.manage" },
   { id: "referrals", label: "Referrals & levels", icon: UserRound, permission: "referrals.view" },
   { id: "reports", label: "Reports", icon: BarChart3, permission: "reports.view" },
@@ -53,6 +56,7 @@ const sectionCopy: Record<string, string> = {
   overview: "Platform management and account activity.", users: "Review registered accounts and manage account access.", deposits: "Deposit operations and payment status.",
   withdrawals: "Withdrawal operations and user withdrawal access.", wallets: "Wallet settings and account wallet status.", signals: "Published copy-trading signals and strategies.",
   notifications: "Send an important message to registered user accounts.",
+  support: "Reply to private support conversations from registered members and guests.",
   referrals: "Referral networks and membership levels.", reports: "Platform reports and activity summaries.", audit: "Review administrative actions and system events.", roles: "Create admin accounts and assign access to platform sections.",
 };
 const sectionPlaceholder: Record<string, string> = {
@@ -118,6 +122,10 @@ export function AdminDashboard() {
   const [balanceQuery, setBalanceQuery] = useState("");
   const [balanceTarget, setBalanceTarget] = useState<UserBalances["users"][number] | null>(null);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [supportChats, setSupportChats] = useState<{ id: string; email: string; participantType: "registered" | "guest"; status: "open" | "closed"; lastMessage: string; lastMessageAt: string; unread: boolean }[]>([]);
+  const [selectedChatId, setSelectedChatId] = useState("");
+  const [supportThread, setSupportThread] = useState<SupportConversation | null>(null);
+  const [adminPushEnabled, setAdminPushEnabled] = useState(false);
 
   const can = useCallback((permission: string) => Boolean(actor?.isSuperAdmin || actor?.permissions.includes(permission) || (permission === "users.view" && actor?.permissions.includes("users.manage")) || (permission === "wallets.view" && actor?.permissions.some((item) => item === "wallets.manage" || item === "wallets.adjust"))), [actor]);
   const loadUsers = useCallback(async () => {
@@ -137,6 +145,8 @@ export function AdminDashboard() {
   const loadFinanceSettings = useCallback(async () => { if (can("wallets.view") || can("wallets.manage")) { const settings = await financeRequest<FinanceSettings>("admin/settings"); setFinanceSettings(settings); setWithdrawalDays(settings.withdrawalDays); } }, [can]);
   const loadDeposits = useCallback(async () => { if (can("deposits.manage")) setDeposits(await financeRequest<FinanceTransaction[]>("admin/deposits")); }, [can]);
   const loadWithdrawals = useCallback(async () => { if (can("withdrawals.manage")) setWithdrawals(await financeRequest<FinanceTransaction[]>("admin/withdrawals")); }, [can]);
+  const loadSupportChats = useCallback(async () => { if (can("support.manage")) setSupportChats(await adminRequest<typeof supportChats>("support/conversations")); }, [can]);
+  const loadSupportThread = useCallback(async (id: string) => { if (id && can("support.manage")) setSupportThread(await adminRequest<SupportConversation>(`support/conversations/${encodeURIComponent(id)}`)); }, [can]);
   const loadReferralRates = useCallback(async () => { if (can("referrals.view")) { const [result, networkUsers] = await Promise.all([referralRequest<{ rates: ReferralRate[] }>("admin/settings"), referralRequest<ReferralAdminUser[]>("admin/users")]); setReferralRates(result.rates); setReferralUsers(networkUsers); setReferralUserId((current) => current || networkUsers[0]?.id || ""); } }, [can]);
   useEffect(() => { if (!referralUserId || !can("referrals.view")) return; referralRequest<ReferralNetwork>(`admin/network/${encodeURIComponent(referralUserId)}`).then(setReferralNetwork).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load this referral network.")); }, [referralUserId, can]);
 
@@ -148,9 +158,33 @@ export function AdminDashboard() {
   useEffect(() => {
     if (!actor) return;
     let active = true;
-    Promise.all([loadUsers(), loadOverview(), loadBalances(), loadAdmins(), loadAudit(), loadFinanceSettings(), loadDeposits(), loadWithdrawals(), loadReferralRates()]).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Could not load admin data."); });
+    Promise.all([loadUsers(), loadOverview(), loadBalances(), loadAdmins(), loadAudit(), loadFinanceSettings(), loadDeposits(), loadWithdrawals(), loadReferralRates(), loadSupportChats()]).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Could not load admin data."); });
     return () => { active = false; };
-  }, [actor, loadUsers, loadOverview, loadBalances, loadAdmins, loadAudit, loadFinanceSettings, loadDeposits, loadWithdrawals, loadReferralRates]);
+  }, [actor, loadUsers, loadOverview, loadBalances, loadAdmins, loadAudit, loadFinanceSettings, loadDeposits, loadWithdrawals, loadReferralRates, loadSupportChats]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("section") === "support" && can("support.manage")) setSection("support");
+  }, [can]);
+
+  useEffect(() => {
+    if (section !== "support" || !can("support.manage")) return;
+    void loadSupportChats();
+    const timer = window.setInterval(() => void loadSupportChats(), 10000);
+    return () => window.clearInterval(timer);
+  }, [section, can, loadSupportChats]);
+
+  useEffect(() => {
+    if (!selectedChatId || section !== "support" || !can("support.manage")) return;
+    void loadSupportThread(selectedChatId);
+    const timer = window.setInterval(() => void loadSupportThread(selectedChatId), 7000);
+    return () => window.clearInterval(timer);
+  }, [selectedChatId, section, can, loadSupportThread]);
+
+  useEffect(() => {
+    if (!actor || !("serviceWorker" in navigator)) return;
+    navigator.serviceWorker.ready.then((registration) => registration.pushManager.getSubscription()).then((subscription) => setAdminPushEnabled(Boolean(subscription))).catch(() => undefined);
+  }, [actor]);
 
   const visibleSections = useMemo(() => sections.filter((item) => item.id === "wallets" ? can("wallets.view") || can("wallets.manage") : item.id !== "roles" ? can(item.permission) : Boolean(actor?.isSuperAdmin)), [can, actor]);
   const current = visibleSections.find((item) => item.id === section) ?? visibleSections[0];
@@ -162,7 +196,36 @@ export function AdminDashboard() {
   const filteredAdmins = admins.filter((admin) => matches(admin.fullName, admin.email, admin.disabled ? "disabled" : "active"));
 
   async function reload() {
-    try { await Promise.all([loadUsers(), loadOverview(), loadBalances(), loadAdmins(), loadAudit(), loadFinanceSettings(), loadDeposits(), loadWithdrawals(), loadReferralRates()]); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not refresh data."); }
+    try { await Promise.all([loadUsers(), loadOverview(), loadBalances(), loadAdmins(), loadAudit(), loadFinanceSettings(), loadDeposits(), loadWithdrawals(), loadReferralRates(), loadSupportChats()]); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not refresh data."); }
+  }
+  async function sendSupportReply(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (!selectedChatId) return;
+    const body = String(new FormData(event.currentTarget).get("body") ?? "").trim(); if (!body) return;
+    const form = event.currentTarget; setBusy(true); setError(""); setNotice("");
+    try {
+      await adminRequest(`support/conversations/${encodeURIComponent(selectedChatId)}/messages`, "POST", { body });
+      form.reset(); setNotice("Reply sent. The participant has been notified.");
+      await Promise.all([loadSupportThread(selectedChatId), loadSupportChats()]);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not send this support reply."); }
+    finally { setBusy(false); }
+  }
+  async function enableAdminPush() {
+    setBusy(true); setError(""); setNotice("");
+    try {
+      if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) throw new Error("Push notifications are not supported by this browser.");
+      if (await Notification.requestPermission() !== "granted") throw new Error("Allow notifications in browser settings to receive support alerts.");
+      const { publicKey } = await notificationRequest<{ publicKey: string }>("push/public-key");
+      if (!publicKey) throw new Error("Push notifications are not configured on the server yet.");
+      await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+      const registration = await navigator.serviceWorker.ready;
+      let subscription = await registration.pushManager.getSubscription();
+      subscription ??= await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidKeyToBytes(publicKey) });
+      const json = subscription.toJSON();
+      if (!subscription.endpoint || !json.keys?.p256dh || !json.keys.auth) throw new Error("Could not read the browser push subscription.");
+      await notificationRequest("push/subscription", "POST", { endpoint: subscription.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth, expirationTime: subscription.expirationTime });
+      setAdminPushEnabled(true); setNotice("Support alerts are enabled on this device.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not enable support alerts."); }
+    finally { setBusy(false); }
   }
   async function action(task: () => Promise<unknown>, success: string): Promise<boolean> {
     setBusy(true); setError(""); setNotice("");
@@ -273,8 +336,13 @@ export function AdminDashboard() {
         {current.id === "referrals" && <form className="admin-panel admin-finance-settings" onSubmit={saveReferralSettings}><div className="admin-panel-head"><div><h2>Referral commission rates</h2><p>Set the percentage of an approved deposit paid to each upline tier, based on the recipient’s membership level.</p></div></div><p className="admin-access-hint">All rates start at 0%. The PRD leaves exact values to be confirmed. Tier 2 and Tier 3 rates must not exceed the preceding tier. These rates apply only to future approved deposits.</p><div className="admin-table-wrap"><table><thead><tr><th>Member level</th><th>Tier 1 (%)</th><th>Tier 2 (%)</th><th>Tier 3 (%)</th></tr></thead><tbody>{referralRates.map((row) => <tr key={row.level}><td><strong>{row.level}</strong></td>{(["tier1", "tier2", "tier3"] as const).map((tier) => <td key={tier}><input className="admin-referral-rate-input" aria-label={`${row.level} ${tier} commission percent`} type="number" min="0" max="100" step="0.01" value={row[tier]} disabled={!can("referrals.manage")} onChange={(event) => setReferralRates((items) => items.map((item) => item.level === row.level ? { ...item, [tier]: Number(event.target.value) } : item))} /></td>)}</tr>)}</tbody></table></div>{can("referrals.manage") && <button className="admin-primary-button" disabled={busy}>Save referral rates</button>}</form>}
         {current.id === "referrals" && <article className="admin-panel admin-records"><div className="admin-panel-head"><div><h2>Referral network lookup</h2><p>Review up to three tiers. Downliner wallet balances are never shown.</p></div><label>Account<select value={referralUserId} onChange={(event) => setReferralUserId(event.target.value)}><option value="">Select a user</option>{referralUsers.map((user) => <option key={user.id} value={user.id}>{user.fullName} · {user.membershipLevel}</option>)}</select></label></div><div className="admin-table-wrap"><table><thead><tr><th>Downliner</th><th>Tier</th><th>Commission earned</th><th>Joined</th></tr></thead><tbody>{referralNetwork?.downliners.map((member) => <tr key={member.id}><td>{member.fullName}</td><td>{member.tier}</td><td>{Number(member.earned).toFixed(2)} USD</td><td>{member.joinedAt ? new Date(member.joinedAt).toLocaleDateString() : "—"}</td></tr>)}</tbody></table>{referralNetwork && !referralNetwork.downliners.length && <div className="admin-empty">No downliners are recorded for this account.</div>}</div></article>}
         {current.id === "signals" && <AdminTradeManager />}
+        {current.id === "support" && <>
+          <article className="admin-panel admin-support-alerts"><div><span className="admin-support-alert-icon"><Bell size={17}/></span><span><strong>Support message alerts</strong><small>{adminPushEnabled ? "Push alerts are enabled for this browser." : "Get a device alert when a user or guest messages support."}</small></span></div><button type="button" className="admin-outline-button" onClick={() => void enableAdminPush()} disabled={busy || adminPushEnabled}>{adminPushEnabled ? "Alerts enabled" : "Enable push alerts"}</button></article>
+          <section className="admin-support-workspace"><article className="admin-panel admin-support-inbox"><div className="admin-panel-head"><div><h2>Conversations</h2><p>{supportChats.length} recent chats · updates automatically</p></div><button type="button" className="admin-outline-button" onClick={() => void loadSupportChats()}>Refresh</button></div><div className="admin-support-chat-list">{supportChats.map((chat) => <button type="button" key={chat.id} className={`admin-support-chat-item${selectedChatId === chat.id ? " active" : ""}`} onClick={() => { setSelectedChatId(chat.id); void loadSupportThread(chat.id); }}><span className="admin-support-chat-avatar">{chat.participantType === "guest" ? <UserRound size={17}/> : chat.email.slice(0, 1).toUpperCase()}</span><span className="admin-support-chat-copy"><strong>{chat.email}</strong><small>{chat.lastMessage || "Conversation started"}</small><small>{chat.lastMessageAt ? new Date(chat.lastMessageAt).toLocaleString() : ""}</small></span><span className={`admin-support-chat-type ${chat.participantType}`}>{chat.participantType}{chat.unread && <i aria-label="Unread message"/>}</span></button>)}{!supportChats.length && <div className="admin-empty">No support conversations yet.</div>}</div></article>
+            <article className="admin-panel admin-support-thread"><div className="admin-panel-head"><div><h2>{supportThread?.email ?? "Conversation"}</h2><p>{supportThread ? `${supportThread.participantType === "guest" ? "Guest chat" : "Registered user"} · private support thread` : "Select a chat to read and reply."}</p></div></div>{supportThread ? <><div className="admin-support-messages">{supportThread.messages.map((message: SupportMessage, index) => <div className={`admin-support-message ${message.senderType === "admin" ? "admin" : "user"}`} key={`${message.createdAt}-${index}`}><span>{message.senderName}</span><p>{message.body}</p><small>{new Date(message.createdAt).toLocaleString()}</small></div>)}{!supportThread.messages.length && <div className="admin-empty">This conversation has no messages yet.</div>}</div>{supportThread.status === "open" ? <form className="admin-support-reply" onSubmit={(event) => void sendSupportReply(event)}><textarea name="body" placeholder="Write a reply…" maxLength={4000} rows={2} required/><button type="submit" className="admin-primary-button" disabled={busy}><Send size={15}/> Reply</button></form> : <p className="admin-access-hint">This conversation is closed.</p>}</> : <div className="admin-support-thread-empty"><MessageCircle size={25}/><strong>Choose a conversation</strong><span>Messages appear here so your team can respond.</span></div>}</article></section>
+        </>}
         {current.id === "referrals" && can("referrals.manage") && <form className="admin-panel admin-broadcast-form" onSubmit={adjustReferralBonus}><div className="admin-panel-head"><div><h2>Manual referral balance adjustment</h2><p>Every adjustment requires a reason and is written to the admin audit trail.</p></div></div><label>Credit or debit<select name="direction"><option value="credit">Credit bonus</option><option value="debit">Debit adjustment</option></select></label><label>Amount (USD)<input name="amount" type="number" min="0.00000001" step="0.00000001" required /></label><label>Reason<textarea name="reason" minLength={3} maxLength={500} rows={3} required /></label><button className="admin-primary-button" disabled={busy || !referralUserId}>Apply adjustment to selected account</button></form>}
-        {!(["overview", "users", "roles", "audit", "wallets", "deposits", "withdrawals", "notifications", "referrals", "signals"].includes(current.id)) && <article className="admin-panel admin-module-empty"><span>{current.id === "deposits" ? <ArrowDownLeft /> : current.id === "withdrawals" ? <ArrowUpRight /> : current.id === "wallets" ? <Wallet /> : current.id === "signals" ? <Signal /> : current.id === "referrals" ? <UserRound /> : <BarChart3 />}</span><h2>{current.label}</h2><p>{sectionPlaceholder[current.id] ?? "This module is not connected yet."}</p></article>}
+        {!(["overview", "users", "roles", "audit", "wallets", "deposits", "withdrawals", "notifications", "support", "referrals", "signals"].includes(current.id)) && <article className="admin-panel admin-module-empty"><span>{current.id === "deposits" ? <ArrowDownLeft /> : current.id === "withdrawals" ? <ArrowUpRight /> : current.id === "wallets" ? <Wallet /> : current.id === "signals" ? <Signal /> : current.id === "referrals" ? <UserRound /> : <BarChart3 />}</span><h2>{current.label}</h2><p>{sectionPlaceholder[current.id] ?? "This module is not connected yet."}</p></article>}
         {current.id === "overview" && <><article className="admin-panel admin-overview-note"><h2>Manage by access group</h2><p>Use Admin access to create administrator accounts and enable only the platform areas each person needs. Access checks are enforced by the backend on every admin request.</p>{permissionGroups.map((group) => <div key={group.id}><strong>{group.label}</strong><span>{group.permissions.map((permission) => permission.label).join(" · ")}</span></div>)}</article></>}
       </section>
     </main>

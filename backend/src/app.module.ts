@@ -15,6 +15,7 @@ import { ReferralsModule } from './referrals/referrals.module.js';
 import { TradesModule } from './trades/trades.module.js';
 import { WalletModule } from './wallet/wallet.module.js';
 import { WebhooksModule } from './webhooks/webhooks.module.js';
+import { SupportModule } from './support/support.module.js';
 import { validateEnvironment } from './config/environment.validation.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -35,6 +36,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     TradesModule,
     WalletModule,
     WebhooksModule,
+    SupportModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: RateLimitGuard }],
 })

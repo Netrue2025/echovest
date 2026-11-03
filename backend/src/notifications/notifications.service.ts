@@ -43,7 +43,12 @@ export class NotificationsService implements OnModuleInit {
   publicKey() { return { publicKey: this.vapidPublicKey }; }
   async addSubscription(userId: string, input: PushSubscriptionDto) {
     if (!this.pushConfigured) throw new ServiceUnavailableException('Push notifications are not configured on the server yet.');
-    await this.subscriptions.findOneAndUpdate({ endpoint: input.endpoint }, { $set: { userId: new Types.ObjectId(userId), endpoint: input.endpoint, p256dh: input.p256dh, auth: input.auth, expirationTime: input.expirationTime ?? null } }, { upsert: true, new: true, setDefaultsOnInsert: true }).exec();
+    await this.subscriptions.findOneAndUpdate({ endpoint: input.endpoint }, { $set: { userId: new Types.ObjectId(userId), guestConversationId: null, endpoint: input.endpoint, p256dh: input.p256dh, auth: input.auth, expirationTime: input.expirationTime ?? null } }, { upsert: true, new: true, setDefaultsOnInsert: true }).exec();
+    return { enabled: true };
+  }
+  async addGuestSubscription(conversationId: string, input: PushSubscriptionDto) {
+    if (!this.pushConfigured) throw new ServiceUnavailableException('Push notifications are not configured on the server yet.');
+    await this.subscriptions.findOneAndUpdate({ endpoint: input.endpoint }, { $set: { userId: null, guestConversationId: new Types.ObjectId(conversationId), endpoint: input.endpoint, p256dh: input.p256dh, auth: input.auth, expirationTime: input.expirationTime ?? null } }, { upsert: true, new: true, setDefaultsOnInsert: true }).exec();
     return { enabled: true };
   }
   async removeSubscription(userId: string, endpoint: string) {
@@ -64,9 +69,9 @@ export class NotificationsService implements OnModuleInit {
     return { id: String(result._id), readAt: result.readAt };
   }
 
-  async notifyUser(userId: string, title: string, message: string, category: 'general' | 'deposit' | 'withdrawal') {
+  async notifyUser(userId: string, title: string, message: string, category: 'general' | 'deposit' | 'withdrawal', url = '/dashboard?view=notifications') {
     const notification = await this.notifications.create({ userId: new Types.ObjectId(userId), title, message, category });
-    await this.sendToUser(userId, { title, body: message, url: '/dashboard?view=notifications', notificationId: String(notification._id) });
+    await this.sendToUser(userId, { title, body: message, url, notificationId: String(notification._id) });
     return notification;
   }
 
@@ -86,6 +91,17 @@ export class NotificationsService implements OnModuleInit {
     const created = await this.notifications.insertMany(userIds.map((userId) => ({ userId: new Types.ObjectId(userId), title: title.trim(), message: message.trim(), category: 'general' })), { ordered: false });
     await this.sendToUsers(userIds, { title: title.trim(), body: message.trim(), url });
     return { sent: created.length };
+  }
+
+  async notifyAdmins(title: string, message: string, url = '/admin') {
+    const admins = await this.users.find({ role: 'admin', isDisabled: { $ne: true }, $or: [{ isSuperAdmin: true }, { adminPermissions: 'support.manage' }] }).select('_id').lean().exec();
+    await this.sendToUsers(admins.map((admin) => String(admin._id)), { title, body: message, url });
+  }
+
+  async notifyGuestConversation(conversationId: string, title: string, message: string, url = '/') {
+    if (!this.pushConfigured) return;
+    const subscriptions = await this.subscriptions.find({ guestConversationId: new Types.ObjectId(conversationId) }).lean().exec();
+    await this.deliver(subscriptions, { title, body: message, url });
   }
 
   private async sendToUser(userId: string, message: PushMessage) {

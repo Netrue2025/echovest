@@ -13,7 +13,7 @@ async function proxy(request: NextRequest, context: RouteContext) {
   const headers = new Headers();
   // Preserve the browser origin for the backend CSRF guard. The request now
   // reaches the backend server-to-server, so fetch would otherwise omit it.
-  for (const name of ['accept', 'content-type', 'cookie', 'origin']) {
+  for (const name of ['accept', 'content-type', 'cookie', 'origin', 'x-chat-token']) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
