@@ -10,9 +10,9 @@ export class User {
   @Prop({ required: true, trim: true, maxlength: 120 }) fullName!: string;
   @Prop({ required: true, unique: true, lowercase: true, trim: true, index: true }) email!: string;
   @Prop({ required: true, select: false }) passwordHash!: string;
-  @Prop({ select: false, default: null }) withdrawalPinHash?: string | null;
+  @Prop({ type: String, select: false, default: null }) withdrawalPinHash?: string | null;
   @Prop({ select: false, default: 0 }) withdrawalPinFailedAttempts!: number;
-  @Prop({ select: false, default: null }) withdrawalPinLockedUntil?: Date | null;
+  @Prop({ type: Date, select: false, default: null }) withdrawalPinLockedUntil?: Date | null;
   @Prop({ type: [{ credentialId: { type: String, required: true }, publicKey: { type: Buffer, required: true }, counter: { type: Number, required: true, default: 0 }, transports: { type: [String], default: [] }, deviceType: { type: String }, backedUp: { type: Boolean, default: false }, name: { type: String } }], select: false, default: [] }) withdrawalPasskeys!: Array<Record<string, unknown>>;
   @Prop({ unique: true, sparse: true, uppercase: true, trim: true, index: true }) referralCode?: string;
   @Prop({ type: Types.ObjectId, ref: User.name, default: null, index: true }) referredBy?: Types.ObjectId | null;
