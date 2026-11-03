@@ -6,7 +6,7 @@ export const ADMIN_PERMISSION_GROUPS = [
   { id: 'support', label: 'Customer support', description: 'Read and reply to customer support chats', permissions: [{ code: 'support.manage', label: 'Manage user and guest support conversations' }] },
   { id: 'trading', label: 'Copy trading', description: 'Schedule copy-trade pairs, manage ROI, and review participation', permissions: [{ code: 'signals.manage', label: 'Manage copy-trade schedules and settings' }] },
   { id: 'referrals', label: 'Referrals and levels', description: 'View referral networks and configure referral commissions', permissions: [{ code: 'referrals.view', label: 'View referrals and levels' }, { code: 'referrals.manage', label: 'Configure referral commission rates' }] },
-  { id: 'oversight', label: 'Reports and audit', description: 'View reports and administrative audit records', permissions: [{ code: 'reports.view', label: 'View reports' }, { code: 'audit.view', label: 'View audit log' }] },
+  { id: 'oversight', label: 'Reports and audit', description: 'View reports and manage administrative audit records', permissions: [{ code: 'reports.view', label: 'View reports' }, { code: 'audit.view', label: 'View audit log' }, { code: 'audit.manage', label: 'Permanently delete selected audit records' }] },
   { id: 'administrators', label: 'Administrator access', description: 'Super-admin only: create administrators and assign section access', permissions: [{ code: 'admins.manage', label: 'Manage admin accounts (super-admin only)' }] },
 ] as const;
 

@@ -10,11 +10,11 @@ import { User } from '../users/user.schema.js';
 import { CreateTradeSignalDto } from './trade.dto.js';
 import { CopyTradeSignal, TradePosition } from './trade.schema.js';
 import { WithdrawalSecurityService } from '../withdrawal-security/withdrawal-security.service.js';
+import { availableTradeInterestUnits, earnedTradeInterestUnits, TRADE_AMOUNT_SCALE, tradeAmountUnits } from './trade-profit.js';
 
 type Actor = { id: string; email: string };
 const DAY_MS = 24 * 60 * 60 * 1000;
-const AMOUNT_SCALE = 100_000_000;
-const amountUnits = (value: number) => Math.round((value + Number.EPSILON) * AMOUNT_SCALE);
+const amountUnits = tradeAmountUnits;
 const duration = (days: number) => days * DAY_MS;
 const signalDuration = (signal: Pick<CopyTradeSignal, 'startsAt' | 'endsAt' | 'lockDays'>) => {
   const scheduledDuration = signal.endsAt ? new Date(signal.endsAt).getTime() - new Date(signal.startsAt).getTime() : 0;
@@ -92,13 +92,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private interestAt(position: TradePosition, signal: CopyTradeSignal, now = new Date()) {
-    const scheduledStart = new Date(signal.startsAt).getTime();
-    const end = maturesAt(position, signal).getTime();
-    const start = Math.max(new Date(position.joinedAt).getTime(), scheduledStart);
-    const cutoff = position.stoppedAt ? Math.min(new Date(position.stoppedAt).getTime(), end) : end;
-    const elapsed = Math.max(0, Math.min(now.getTime(), cutoff) - start);
-    const fullProfit = position.principal * signal.roiPercent / 100;
-    return fullProfit * Math.min(1, elapsed / Math.max(1, end - scheduledStart));
+    return earnedTradeInterestUnits(position, signal, now) / TRADE_AMOUNT_SCALE;
   }
 
   private serializePosition(position: TradePosition, signal: CopyTradeSignal) {
@@ -264,27 +258,35 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
         if (amount < (settings?.minimumWithdrawal ?? 0)) throw new BadRequestException(`The minimum withdrawal is ${settings?.minimumWithdrawal ?? 0} USD.`);
 
         const positions = await this.positions.find({ userId: new Types.ObjectId(userId), status: { $in: ['stopped', 'matured'] } }).sort({ joinedAt: 1 }).session(session).exec();
+        const signalMap = new Map<string, CopyTradeSignal>();
+        for (const position of positions) {
+          const signal = await this.signals.findById(position.signalId).session(session).exec();
+          if (signal) signalMap.set(String(position.signalId), signal);
+        }
         // Work in the same 8-decimal unit precision as the withdrawal DTO so
         // binary floating-point residue cannot reject an amount shown as available.
         let remainingUnits = amountUnits(amount);
         const allocations: Array<{ positionId: Types.ObjectId; amount: number }> = [];
         for (const position of positions) {
           if (remainingUnits <= 0) break;
-          const signal = await this.signals.findById(position.signalId).session(session).exec();
+          const signal = signalMap.get(String(position.signalId));
           if (!signal) continue;
-          // Round earned and already-claimed amounts independently to the
-          // withdrawal API's 8-decimal precision. Flooring the difference
-          // caused a one-unit shortfall versus the balance shown to users.
-          const availableUnits = Math.max(0, amountUnits(this.interestAt(position, signal, now)) - amountUnits(position.claimedInterest));
+          const availableUnits = availableTradeInterestUnits(position, signal, now);
           const allocationUnits = Math.min(remainingUnits, availableUnits);
           if (!allocationUnits) continue;
-          const allocation = allocationUnits / AMOUNT_SCALE;
+          const allocation = allocationUnits / TRADE_AMOUNT_SCALE;
           const updated = await this.positions.updateOne({ _id: position._id, claimedInterest: position.claimedInterest }, { $inc: { claimedInterest: allocation } }, { session }).exec();
           if (!updated.matchedCount) throw new ConflictException('Profit balance changed. Refresh and try again.');
           allocations.push({ positionId: position._id as Types.ObjectId, amount: allocation });
           remainingUnits -= allocationUnits;
         }
-        if (remainingUnits > 0) throw new BadRequestException('The requested amount exceeds available profit from closed trades. Refresh the balance and try again.');
+        if (remainingUnits > 0) {
+          const availableUnits = positions.reduce((total, position) => {
+            const signal = signalMap.get(String(position.signalId));
+            return signal ? total + availableTradeInterestUnits(position, signal, now) : total;
+          }, 0);
+          throw new BadRequestException(`Available profit from closed trades is ${(availableUnits / TRADE_AMOUNT_SCALE).toFixed(8)} USD. Refresh the balance and try again.`);
+        }
 
         const docs = await this.transactions.create([{ userId: new Types.ObjectId(userId), type: 'withdrawal', amount, balanceType: 'trading', status: 'pending_review', destinationAddress: destinationAddress.trim(), network: network.trim(), sourceType: 'trade_interest', profitLedger: true, profitPositionAllocations: allocations }], { session });
         createdTransaction = docs[0];

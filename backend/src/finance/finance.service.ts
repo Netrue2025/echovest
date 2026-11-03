@@ -9,6 +9,7 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { CopyTradeSignal, TradePosition } from '../trades/trade.schema.js';
 import { assertWithdrawalWindow } from './withdrawal-window.js';
 import { WithdrawalSecurityService } from '../withdrawal-security/withdrawal-security.service.js';
+import { availableTradeInterestUnits, tradeAmountUnits } from '../trades/trade-profit.js';
 
 type Actor = { id: string; email: string };
 @Injectable()
@@ -56,17 +57,11 @@ export class FinanceService {
     // figure aligned with withdrawProfit(), which reserves from stopped/matured
     // positions only and rejects the request if any position remains active.
     const closedPositions = positions.filter((position) => position.status === 'stopped' || position.status === 'matured');
+    const profitCalculationTime = new Date();
     const closedProfitUnits = closedPositions.reduce((total, position) => {
       const signal = signalMap.get(String(position.signalId));
       if (!signal) return total;
-      const scheduledStart = new Date(signal.startsAt).getTime();
-      const scheduleDuration = signal.endsAt && signal.startsAt ? new Date(signal.endsAt).getTime() - new Date(signal.startsAt).getTime() : (signal.lockDays ?? 1) * 24 * 60 * 60 * 1000;
-      const start = Math.max(new Date(position.joinedAt).getTime(), scheduledStart);
-      const end = scheduledStart + (Number.isFinite(scheduleDuration) && scheduleDuration > 0 ? scheduleDuration : 24 * 60 * 60 * 1000);
-      const cutoff = position.stoppedAt ? Math.min(new Date(position.stoppedAt).getTime(), end) : end;
-      const elapsed = Math.max(0, Math.min(Date.now(), cutoff) - start);
-      const earned = position.principal * signal.roiPercent / 100 * Math.min(1, elapsed / Math.max(1, end - start));
-      return total + Math.max(0, Math.round((earned + Number.EPSILON) * 100_000_000) - Math.round(((position.claimedInterest ?? 0) + Number.EPSILON) * 100_000_000));
+      return total + availableTradeInterestUnits(position, signal, profitCalculationTime);
     }, 0);
     const profitPaid = approvedProfitWithdrawals.reduce((total, transaction) => total + transaction.amount, 0);
     const totalProfitEarned = Math.max(0, grossProfitEarned - profitPaid);
@@ -106,6 +101,7 @@ export class FinanceService {
     if (!settings.depositWalletAddress.trim() || !settings.depositNetwork.trim()) throw new ForbiddenException('The manual deposit wallet is not configured yet.');
     if (amount < (settings.minimumDeposit ?? 0)) throw new BadRequestException(`The minimum deposit is ${settings.minimumDeposit} USDT.`);
     try {
+      if (txid?.trim() && await this.audit.exists({ action: 'finance.deposit.txid_tombstone', targetId: txid.trim() }).exec()) throw new ConflictException('This transaction hash was already used and cannot be submitted again.');
       return await this.transactions.create({ userId: new Types.ObjectId(userId), type: 'deposit', amount, balanceType: 'trading', status: 'pending_review', ...(txid?.trim() ? { txid: txid.trim() } : {}), destinationAddress: settings.depositWalletAddress.trim(), network: settings.depositNetwork.trim() });
     } catch (error) {
       if (typeof error === 'object' && error && 'code' in error && error.code === 11000) throw new ConflictException('This transaction hash has already been submitted.');
@@ -206,6 +202,24 @@ export class FinanceService {
     } finally { await session.endSession(); }
     return { type, archivedCount: count };
   }
+  async permanentlyDeleteSelectedTransactions(type: 'deposit' | 'withdrawal', ids: string[], reason: string, actor: Actor) {
+    const session = await this.transactions.db.startSession();
+    let count = 0;
+    try {
+      await session.withTransaction(async () => {
+        const records = await this.transactions.find({ _id: { $in: ids.map((id) => new Types.ObjectId(id)) }, type, status: { $in: ['approved', 'rejected'] } }).select('_id amount txid').session(session).lean().exec();
+        if (!records.length) return;
+        const result = await this.transactions.deleteMany({ _id: { $in: records.map((item) => item._id) }, type, status: { $in: ['approved', 'rejected'] } }, { session }).exec();
+        count = result.deletedCount;
+        if (count) {
+          const deletionAudit = [{ actorId: actor.id, actorEmail: actor.email, action: `finance.${type}.history_permanently_deleted`, targetType: 'transaction_history', targetId: type, targetLabel: `${type} history`, detail: `${count} resolved record(s) permanently deleted. Reason: ${reason.trim()}. Record IDs: ${records.map((item) => String(item._id)).join(', ')}.` }];
+          const transactionHashTombstones = type === 'deposit' ? records.filter((item) => item.txid).map((item) => ({ actorId: actor.id, actorEmail: actor.email, action: 'finance.deposit.txid_tombstone', targetType: 'deleted_deposit_transaction_hash', targetId: item.txid!, targetLabel: 'Previously submitted transaction hash', detail: `A deleted deposit history record retains this hash to prevent replay. Reason: ${reason.trim()}.` })) : [];
+          await this.audit.create([...deletionAudit, ...transactionHashTombstones], { session });
+        }
+      });
+    } finally { await session.endSession(); }
+    return { type, deletedCount: count };
+  }
   async review(id: string, expectedType: 'deposit' | 'withdrawal', decision: 'approved' | 'rejected', reason: string | undefined, actor: Actor) {
     const transaction = await this.transactions.findById(id).exec();
     if (!transaction) throw new NotFoundException('Transaction request not found.');
@@ -219,6 +233,7 @@ export class FinanceService {
         if (transaction.type === 'deposit') {
           const settings = await this.settings.findOne({ key: 'platform' }).session(session).lean().exec();
           if (settings?.depositMethod !== 'manual' || transaction.status !== 'pending_review') throw new ConflictException('This manual deposit is no longer eligible for review.');
+          if (decision === 'approved' && transaction.txid && await this.audit.exists({ action: 'finance.deposit.txid_tombstone', targetId: transaction.txid }).session(session).exec()) throw new ConflictException('This transaction hash was already used and cannot be credited again.');
           const changed = await this.transactions.findOneAndUpdate({ _id: id, type: 'deposit', status: 'pending_review' }, { $set: { status: decision, rejectionReason: decision === 'rejected' ? reason!.trim() : '', reviewedBy: actor.email, reviewedAt: new Date() } }, { new: true, session }).exec();
           if (!changed) throw new ConflictException('This request has already been reviewed.');
           if (decision === 'approved') {

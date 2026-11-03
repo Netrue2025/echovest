@@ -9,6 +9,7 @@ import { AdminActor, AdminService } from './admin.service.js';
 import { AdjustUserBalanceDto, AdminSigninDto, CreateAdminDto, UpdateAdminPermissionsDto, UpdateAdminStatusDto, UpdateUserControlsDto, UpdateUserDto, UpdateUserPasswordDto, UpdateUserWithdrawalDto } from './admin.dto.js';
 import { ADMIN_PERMISSION_GROUPS } from './admin-permissions.js';
 import { SuperAdminGuard } from './super-admin.guard.js';
+import { ArchiveSelectedHistoryDto } from '../finance/finance.dto.js';
 
 const cookieOptions = (expires?: Date) => {
   const production = process.env.NODE_ENV === 'production';
@@ -53,4 +54,5 @@ export class AdminController {
   @Patch('admins/:id/permissions') @UseGuards(OriginGuard, SessionGuard, AdminAccessGuard, SuperAdminGuard) updateAdminPermissions(@Param('id') id: string, @Body() body: UpdateAdminPermissionsDto, @Req() request: Request & { user?: User }) { return this.admin.updateAdminPermissions(id, body.permissions, this.actor(request)); }
   @Patch('admins/:id/status') @UseGuards(OriginGuard, SessionGuard, AdminAccessGuard, SuperAdminGuard) updateAdminStatus(@Param('id') id: string, @Body() body: UpdateAdminStatusDto, @Req() request: Request & { user?: User }) { return this.admin.updateAdminStatus(id, body.disabled, this.actor(request)); }
   @Get('audit') @UseGuards(SessionGuard, AdminAccessGuard) @RequireAdminPermissions('audit.view') listAudit() { return this.admin.listAudit(); }
+  @Delete('audit') @UseGuards(OriginGuard, SessionGuard, AdminAccessGuard) @RequireAdminPermissions('audit.manage') deleteAudit(@Body() body: ArchiveSelectedHistoryDto, @Req() request: Request & { user?: User }) { return this.admin.permanentlyDeleteAuditEvents(body.ids, body.reason, this.actor(request)); }
 }

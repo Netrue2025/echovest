@@ -172,6 +172,19 @@ body{overflow-x:hidden}@media(max-width:900px){.grid-lines>.container{grid-templ
 .dash-withdraw-success-page button,.dash-deposit-success-page button{background:#F0B90B;color:#20262C}
 .dash-modal-layer{min-height:100dvh}
 .dash-withdraw-verify-card{align-self:center;justify-self:center;margin:auto}
+.admin-nav{align-content:start}
+.admin-nav-group{min-width:0}
+.admin-nav-group-toggle{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:36px;padding:0 9px;border:0;border-radius:8px;background:transparent;color:#9EA8B0;text-align:left;font-size:10px;font-weight:750;letter-spacing:.04em}
+.admin-nav-group-toggle:hover,.admin-nav-group.expanded>.admin-nav-group-toggle{background:#2B3035;color:#F0B90B}
+.admin-nav-group-toggle svg{transition:transform .18s ease}
+.admin-nav-group.expanded>.admin-nav-group-toggle svg{transform:rotate(180deg)}
+.admin-nav-submenu{display:grid;gap:3px;padding:3px 0 7px 7px}
+.admin-nav-submenu>button{display:flex;align-items:center;gap:9px;min-height:36px;padding:0 9px;border:0;border-radius:8px;background:transparent;color:#B1BAC1;text-align:left;font-size:11px}
+.admin-nav-submenu>button:hover,.admin-nav-submenu>button.active{background:#353A3F;color:#F0B90B}
+.admin-nav-submenu>button span{flex:1}
+.admin-delete-action{display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:7px 9px;border:1px solid #F0D1CF;border-radius:7px;background:#FFF5F4;color:#A23832;font-size:10px;font-weight:700;white-space:nowrap}
+.admin-delete-action:hover{border-color:#D99590;background:#FDEAE8}
+.admin-delete-action:disabled{cursor:not-allowed;opacity:.55}
 #withdrawal-status-section{scroll-margin-top:24px}
 @media(max-width:600px){.dash-security-choice-buttons{grid-template-columns:1fr}.dash-withdraw-success-page,.dash-deposit-success-page{min-height:calc(100dvh - 145px)!important;padding:12px 16px 86px!important}.dash-withdraw-success-page button,.dash-deposit-success-page button{min-height:54px}}
 @media(max-width:800px){
@@ -249,6 +262,7 @@ body{overflow-x:hidden}@media(max-width:900px){.grid-lines>.container{grid-templ
   .admin-queue-row small,.admin-table-wrap td,.admin-footnote{font-size:10px}
   .admin-table-wrap th,.admin-table-wrap td small,.admin-table-wrap td i{font-size:9px}
 }
+@media(max-width:700px){.admin-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;overflow:visible;padding:0 0 8px}.admin-nav-group{min-width:0;padding:4px;border:1px solid #363C41;border-radius:10px}.admin-nav-group.expanded{grid-column:1/-1}.admin-nav-group-toggle{min-height:34px;font-size:10px}.admin-nav-submenu{grid-template-columns:repeat(2,minmax(0,1fr));padding:4px 0 0}.admin-nav-submenu>button{min-width:0;min-height:35px;padding:0 6px;font-size:10px}.admin-nav-submenu>button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.admin-record-actions{flex-wrap:wrap}.admin-delete-action{font-size:10px}}
 @media(max-width:800px){
   .dash-page .dash-page-heading h1{font-size:28px}
   .dash-page .dash-panel-heading h2{font-size:16px}

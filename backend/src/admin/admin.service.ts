@@ -198,6 +198,24 @@ export class AdminService implements OnModuleInit {
     const events = await this.audit.find({}).sort({ createdAt: -1 }).limit(250).lean().exec();
     return events.map((event) => ({ id: String(event._id), actorId: event.actorId, actorEmail: event.actorEmail, action: event.action, targetType: event.targetType, targetId: event.targetId, targetLabel: event.targetLabel, detail: event.detail, createdAt: event.createdAt }));
   }
+  async permanentlyDeleteAuditEvents(ids: string[], reason: string, actor: AdminActor) {
+    const session = await this.audit.db.startSession();
+    let deletedCount = 0;
+    try {
+      await session.withTransaction(async () => {
+        const objectIds = ids.map((id) => new Types.ObjectId(id));
+        const protectedActions = ['audit.records_deleted', 'finance.deposit.txid_tombstone'];
+        const filter = { _id: { $in: objectIds }, action: { $nin: protectedActions } };
+        const records = await this.audit.find(filter).select('_id action targetType targetId').session(session).lean().exec();
+        if (!records.length) return;
+        // This raw collection operation is intentionally limited to this guarded admin endpoint.
+        const result = await this.audit.collection.deleteMany(filter, { session });
+        deletedCount = result.deletedCount ?? 0;
+        if (deletedCount) await this.audit.create([{ actorId: actor.id, actorEmail: actor.email, action: 'audit.records_deleted', targetType: 'admin_audit', targetId: 'selected', targetLabel: 'Selected audit records', detail: `${deletedCount} audit record(s) permanently deleted. Reason: ${reason.trim()}. Deleted record IDs: ${records.map((item) => String(item._id)).join(', ')}.` }], { session });
+      });
+    } finally { await session.endSession(); }
+    return { deletedCount };
+  }
   private recordAudit(actor: AdminActor, action: string, targetType: string, targetId: string, targetLabel: string, detail: string) {
     return this.audit.create({ actorId: actor.id, actorEmail: actor.email, action, targetType, targetId, targetLabel, detail });
   }

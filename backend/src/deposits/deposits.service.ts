@@ -290,6 +290,21 @@ export class DepositsService implements OnModuleInit, OnModuleDestroy {
     return { archivedCount: count };
   }
 
+  async permanentlyDeleteSelectedHistoryRecords(ids: string[], reason: string, actor: AdminActor) {
+    const session = await this.events.db.startSession();
+    let count = 0;
+    try {
+      await session.withTransaction(async () => {
+        const records = await this.events.find({ _id: { $in: ids.map((id) => new Types.ObjectId(id)) }, status: { $in: ['credited', 'rejected'] } }).select('_id providerTransactionId amount').session(session).lean().exec();
+        if (!records.length) return;
+        const result = await this.events.deleteMany({ _id: { $in: records.map((item) => item._id) }, status: { $in: ['credited', 'rejected'] } }, { session }).exec();
+        count = result.deletedCount;
+        if (count) await this.audit.create([{ actorId: actor.id, actorEmail: actor.email, action: 'deposit.history_permanently_deleted', targetType: 'provider_deposit_history', targetId: 'selected', targetLabel: 'Selected ChainPay deposit history', detail: `${count} resolved provider record(s) permanently deleted. Reason: ${reason.trim()}. Transaction hashes: ${records.map((item) => item.providerTransactionId).join(', ')}.` }], { session });
+      });
+    } finally { await session.endSession(); }
+    return { deletedCount: count };
+  }
+
   async restoreHistoryRecord(id: string, actor: AdminActor) {
     const session = await this.events.db.startSession();
     let changed = false;

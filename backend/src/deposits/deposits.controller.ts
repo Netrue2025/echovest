@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { User } from '../users/user.schema.js';
 import { OriginGuard } from '../auth/origin.guard.js';
@@ -31,6 +31,11 @@ export class DepositsController {
   @Post('history/archive-selected') @UseGuards(OriginGuard)
   archiveSelectedHistory(@Body() body: ArchiveSelectedHistoryDto, @Req() request: Request & { user?: User }) {
     return this.deposits.archiveSelectedHistoryRecords(body.ids, body.reason, { id: String(request.user!._id), email: request.user!.email });
+  }
+
+  @Delete('history') @UseGuards(OriginGuard)
+  permanentlyDeleteSelectedHistory(@Body() body: ArchiveSelectedHistoryDto, @Req() request: Request & { user?: User }) {
+    return this.deposits.permanentlyDeleteSelectedHistoryRecords(body.ids, body.reason, { id: String(request.user!._id), email: request.user!.email });
   }
 
   @Post('history/archive-all') @UseGuards(OriginGuard)

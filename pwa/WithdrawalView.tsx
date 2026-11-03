@@ -69,7 +69,18 @@ export function WithdrawalView() {
       setWithdrawalSuccess(numericAmount); setAddress(""); setAmount("");
       void financeRequest<FinanceSummary>("me").then(setSummary).catch(() => undefined);
       if (wallet === "profit") void tradeRequest<TradeDashboard>("me").then(setTradeDashboard).catch(() => undefined);
-    } catch (cause) { setVerificationError(cause instanceof Error ? cause.message : "Could not submit your withdrawal."); }
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Could not submit your withdrawal.";
+      setVerificationError(message);
+      if (wallet === "profit") {
+        const [freshSummary, freshTrades] = await Promise.all([
+          financeRequest<FinanceSummary>("me").catch(() => null),
+          tradeRequest<TradeDashboard>("me").catch(() => null),
+        ]);
+        if (freshSummary) setSummary(freshSummary);
+        if (freshTrades) setTradeDashboard(freshTrades);
+      }
+    }
     finally { setBusy(false); }
   }
   async function verifyWithPin(event: React.FormEvent<HTMLFormElement>) { event.preventDefault(); await submitVerified({ pin: verificationPin }); }
