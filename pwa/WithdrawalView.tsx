@@ -8,6 +8,7 @@ import { NotificationBell } from "./NotificationCenter";
 import { withdrawalScheduleLabel, withdrawalWindowOpen } from "../lib/withdrawal-schedule";
 import { withdrawalSecurityApi, WithdrawalSecurityStatus } from "../lib/withdrawal-security-api";
 import { Fingerprint, KeyRound, ShieldCheck } from "lucide-react";
+import { AuthSuccess } from "./AuthSuccess";
 
 const money = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 8 });
 
@@ -27,6 +28,8 @@ export function WithdrawalView() {
   const [verificationOpen, setVerificationOpen] = useState(false);
   const [verificationPin, setVerificationPin] = useState("");
   const [verificationError, setVerificationError] = useState("");
+  const [verificationMethod, setVerificationMethod] = useState<"pin" | "biometric" | null>(null);
+  const [withdrawalSuccess, setWithdrawalSuccess] = useState<number | null>(null);
   useEffect(() => { withdrawalSecurityApi.status().then(setSecurity).catch(() => setSecurity(null)); }, []);
   useEffect(() => { Promise.all([financeRequest<FinanceSummary>("me"), financeRequest<FinanceSettings>("settings")]).then(([account, config]) => { setSummary(account); setSettings(config); }).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load withdrawal details.")); }, []);
   useEffect(() => { const refresh = () => financeRequest<FinanceSummary>("me").then(setSummary).catch(() => undefined); const timer = window.setInterval(refresh, 15000); return () => window.clearInterval(timer); }, []);
@@ -53,7 +56,7 @@ export function WithdrawalView() {
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!validAmount || !address.trim() || !settings?.depositNetwork || busy) return;
     if (!security?.configured) { setError("Set a withdrawal PIN or enable device biometrics before making a withdrawal."); return; }
-    setError(""); setNotice(""); setVerificationError(""); setVerificationPin(""); setVerificationOpen(true);
+    setError(""); setNotice(""); setVerificationError(""); setVerificationPin(""); setVerificationMethod(null); setVerificationOpen(true);
   }
   async function submitVerified(verification: { pin?: string; verificationToken?: string }) {
     setBusy(true); setError(""); setNotice("");
@@ -62,9 +65,9 @@ export function WithdrawalView() {
       if (wallet === "profit") await tradeRequest("withdraw-profit", "POST", payload);
       else await financeRequest("withdrawals", "POST", { ...payload, balanceType: wallet });
       setVerificationOpen(false);
-      setNotice("Withdrawal request submitted. The amount is reserved while admin reviews it."); setAddress(""); setAmount("");
-      setSummary(await financeRequest<FinanceSummary>("me"));
-      if (wallet === "profit") setTradeDashboard(await tradeRequest<TradeDashboard>("me"));
+      setWithdrawalSuccess(numericAmount); setAddress(""); setAmount("");
+      void financeRequest<FinanceSummary>("me").then(setSummary).catch(() => undefined);
+      if (wallet === "profit") void tradeRequest<TradeDashboard>("me").then(setTradeDashboard).catch(() => undefined);
     } catch (cause) { setVerificationError(cause instanceof Error ? cause.message : "Could not submit your withdrawal."); }
     finally { setBusy(false); }
   }
@@ -76,6 +79,8 @@ export function WithdrawalView() {
       await submitVerified({ verificationToken: result.verificationToken });
     } catch (cause) { setVerificationError(cause instanceof Error ? cause.message : "Device verification failed."); setBusy(false); }
   }
+
+  if (withdrawalSuccess !== null) return <AuthSuccess pageClassName="dash-withdraw-success-page" title="Withdrawal request submitted!" description={`${money.format(withdrawalSuccess)} USD is now awaiting review. You can follow its progress from the withdrawal status page.`} action="View withdrawal status" onContinue={() => { setWithdrawalSuccess(null); window.setTimeout(() => document.getElementById("withdrawal-status-section")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80); }} />;
 
   return <section className="dash-withdraw-page">
     <a className="dash-deposit-back" href="/dashboard?view=wallet"><ArrowLeft size={17} /> Back to wallet</a>
@@ -95,10 +100,13 @@ export function WithdrawalView() {
         <button className="dash-withdraw-review-button" type="submit" disabled={!validAmount || !address.trim() || !settings?.depositNetwork || busy || !security?.configured}>{busy ? <><LoaderCircle size={17} /> Submitting...</> : "Verify & submit withdrawal"}</button>
       </form>
       <article className="dash-panel dash-withdraw-panel"><div className="dash-panel-heading"><div><h2>Your withdrawal requests</h2><p>Approved referral, matured principal, and trade profit withdrawals are recorded here.</p></div></div>{history.length ? history.map((item) => <div className="dash-activity-row" key={item.id}><span className="dash-activity-icon out"><ArrowLeft size={17} /></span><span className="dash-activity-main"><b>{money.format(item.amount)} USD withdrawal</b><small>{item.sourceType === "trade_interest" ? "Trade profit" : item.maturedPrincipalWithdrawal ? "Matured principal" : `${item.balanceType} balance`} | {item.network}</small></span><span className="dash-activity-amount"><b className={`dash-status-label ${financeStatusTone(item.status)}`}>{financeStatusLabel(item.status)}</b><small>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : ""}</small></span></div>) : <p className="dash-deposit-helper">No withdrawal requests yet.</p>}</article>
-    </div><aside className="dash-panel dash-deposit-status"><span className="dash-overline">WITHDRAWAL STATUS</span><h2>{latest ? "Latest request progress" : "Request steps"}</h2><div className="dash-deposit-timeline"><div className={stepOne ? "completed" : "current"}><i>{stepOne ? <Check size={13} /> : "1"}</i><span><strong>Submit details</strong><small>Verify the wallet and chosen balance.</small></span></div><div className={`${stepTwo ? "completed" : ""} ${state === "pending_review" ? "current" : ""}`}><i>{stepTwo ? <Check size={13} /> : "2"}</i><span><strong>Admin review</strong><small>{state === "pending_review" ? "Your request is being reviewed." : "Funds remain reserved during review."}</small></span></div><div className={`${approved ? "completed current" : ""} ${rejected ? "failed" : ""}`}><i>{rejected ? <X size={13} /> : approved ? <Check size={13} /> : "3"}</i><span><strong>{rejected ? "Withdrawal rejected" : approved ? "Withdrawal approved" : "Approved or rejected"}</strong><small>{rejected ? latest?.rejectionReason || "Reserved funds have been released." : approved ? "Your selected balance has been debited." : "Approval debits funds; rejection releases them."}</small></span></div></div></aside></div>
+    </div><aside id="withdrawal-status-section" className="dash-panel dash-deposit-status"><span className="dash-overline">WITHDRAWAL STATUS</span><h2>{latest ? "Latest request progress" : "Request steps"}</h2><div className="dash-deposit-timeline"><div className={stepOne ? "completed" : "current"}><i>{stepOne ? <Check size={13} /> : "1"}</i><span><strong>Submit details</strong><small>Verify the wallet and chosen balance.</small></span></div><div className={`${stepTwo ? "completed" : ""} ${state === "pending_review" ? "current" : ""}`}><i>{stepTwo ? <Check size={13} /> : "2"}</i><span><strong>Admin review</strong><small>{state === "pending_review" ? "Your request is being reviewed." : "Funds remain reserved during review."}</small></span></div><div className={`${approved ? "completed current" : ""} ${rejected ? "failed" : ""}`}><i>{rejected ? <X size={13} /> : approved ? <Check size={13} /> : "3"}</i><span><strong>{rejected ? "Withdrawal rejected" : approved ? "Withdrawal approved" : "Approved or rejected"}</strong><small>{rejected ? latest?.rejectionReason || "Reserved funds have been released." : approved ? "Your selected balance has been debited." : "Approval debits funds; rejection releases them."}</small></span></div></div></aside></div>
     {verificationOpen && <div className="dash-modal-layer" role="presentation"><section className="dash-modal-card dash-withdraw-verify-card" role="dialog" aria-modal="true" aria-labelledby="withdraw-verify-title"><header><span className="dash-modal-icon"><ShieldCheck size={20}/></span><button type="button" aria-label="Close verification" onClick={() => setVerificationOpen(false)}><X size={18}/></button></header><h2 id="withdraw-verify-title">Verify this withdrawal</h2><p>Confirm {money.format(numericAmount)} USD to {address.trim()}.</p>
-      {security?.biometricEnabled && <button type="button" className="dash-security-biometric" disabled={busy} onClick={() => void verifyWithBiometrics()}><Fingerprint size={19}/><span><strong>Use fingerprint / Face ID</strong><small>Confirm on this device</small></span>{busy && <LoaderCircle size={17} className="admin-loading-orbit"/>}</button>}
-      {security?.pinEnabled && <><div className="dash-security-divider"><span>or use your PIN</span></div><form onSubmit={(event) => void verifyWithPin(event)}><label className="dash-deposit-label" htmlFor="withdraw-verification-pin">6-digit withdrawal PIN</label><input id="withdraw-verification-pin" className="dash-security-pin-input" type="password" inputMode="numeric" autoComplete="current-password" pattern="[0-9]{6}" maxLength={6} value={verificationPin} onChange={(event) => setVerificationPin(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="Enter your PIN" required/><button className="dash-modal-primary dash-security-save" type="submit" disabled={busy || verificationPin.length !== 6}>{busy ? <LoaderCircle size={17} className="admin-loading-orbit"/> : <KeyRound size={17}/>} Verify &amp; submit</button></form></>}
+      <div className="dash-withdraw-method-options">
+        {security?.pinEnabled && verificationMethod !== "pin" && <button type="button" className="dash-security-biometric" disabled={busy} onClick={() => { setVerificationMethod("pin"); setVerificationError(""); }}><KeyRound size={19}/><span><strong>Use withdrawal PIN</strong><small>Enter your six-digit PIN</small></span><ArrowRight size={16}/></button>}
+        {security?.biometricEnabled && <button type="button" className="dash-security-biometric" disabled={busy} onClick={() => void verifyWithBiometrics()}><Fingerprint size={19}/><span><strong>{security.biometricEnabled && security.pinEnabled ? "Use fingerprint / Face ID" : "Verify with fingerprint / Face ID"}</strong><small>Confirm securely on this device</small></span>{busy ? <LoaderCircle size={17} className="admin-loading-orbit"/> : <ArrowRight size={16}/>}</button>}
+      </div>
+      {security?.pinEnabled && verificationMethod === "pin" && <form className="dash-withdraw-pin-form" onSubmit={(event) => void verifyWithPin(event)}><label className="dash-deposit-label" htmlFor="withdraw-verification-pin">6-digit withdrawal PIN</label><input id="withdraw-verification-pin" className="dash-security-pin-input" type="password" inputMode="numeric" autoComplete="current-password" pattern="[0-9]{6}" maxLength={6} value={verificationPin} onChange={(event) => setVerificationPin(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="Enter your PIN" required autoFocus/><button className="dash-modal-primary dash-security-save" type="submit" disabled={busy || verificationPin.length !== 6}>{busy ? <LoaderCircle size={17} className="admin-loading-orbit"/> : <KeyRound size={17}/>} Verify &amp; submit</button></form>}
       {verificationError && <p className="dash-withdraw-inline-error" role="alert">{verificationError}</p>}<footer><button type="button" className="dash-modal-secondary" onClick={() => setVerificationOpen(false)}>Cancel</button></footer></section></div>}
   </section>;
 }

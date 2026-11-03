@@ -24,8 +24,10 @@ export class WithdrawalSecurityService {
   }
 
   private async consumeChallenge(userId: string, challengeId: string, purpose: 'registration' | 'authentication', hash: string) {
-    const user = await this.users.findOneAndUpdate({ _id: userId, withdrawalPasskeyChallengeId: challengeId, withdrawalPasskeyChallengePurpose: purpose, withdrawalPasskeyChallengeContextHash: hash, withdrawalPasskeyChallengeExpiresAt: { $gt: new Date() } }, { $unset: { withdrawalPasskeyChallenge: 1, withdrawalPasskeyChallengeId: 1, withdrawalPasskeyChallengePurpose: 1, withdrawalPasskeyChallengeContextHash: 1, withdrawalPasskeyChallengeExpiresAt: 1 } }, { new: false }).select('+withdrawalPasskeyChallenge +withdrawalPasskeyChallengeExpiresAt').exec();
-    return user?.withdrawalPasskeyChallenge ?? null;
+    const user = await this.users.findById(userId).select('+withdrawalPasskeyChallenge +withdrawalPasskeyChallengeId +withdrawalPasskeyChallengePurpose +withdrawalPasskeyChallengeContextHash +withdrawalPasskeyChallengeExpiresAt').lean().exec();
+    if (!user || user.withdrawalPasskeyChallengeId !== challengeId || user.withdrawalPasskeyChallengePurpose !== purpose || user.withdrawalPasskeyChallengeContextHash !== hash || !user.withdrawalPasskeyChallenge || !user.withdrawalPasskeyChallengeExpiresAt || user.withdrawalPasskeyChallengeExpiresAt.getTime() <= Date.now()) return null;
+    const consumed = await this.users.updateOne({ _id: userId, withdrawalPasskeyChallengeId: challengeId, withdrawalPasskeyChallengePurpose: purpose, withdrawalPasskeyChallengeContextHash: hash, withdrawalPasskeyChallengeExpiresAt: { $gt: new Date() } }, { $unset: { withdrawalPasskeyChallenge: 1, withdrawalPasskeyChallengeId: 1, withdrawalPasskeyChallengePurpose: 1, withdrawalPasskeyChallengeContextHash: 1, withdrawalPasskeyChallengeExpiresAt: 1 } }).exec();
+    return consumed.matchedCount ? user.withdrawalPasskeyChallenge : null;
   }
 
   async status(userId: string) {
@@ -58,7 +60,7 @@ export class WithdrawalSecurityService {
   }
 
   async verifyRegistration(userId: string, response: RegistrationResponseJSON, name?: string, challengeId?: string) {
-    if (!challengeId || !Types.ObjectId.isValid(challengeId)) throw new ConflictException('Passkey setup expired. Start setup again.');
+    if (!challengeId || !/^[A-Za-z0-9_-]{32}$/.test(challengeId)) throw new ConflictException('Passkey setup expired. Start setup again.');
     const challenge = await this.consumeChallenge(userId, challengeId, 'registration', 'registration');
     if (!challenge) throw new ConflictException('Passkey setup expired. Start setup again.');
     const { rpID, origins } = this.relyingParty();
@@ -81,7 +83,7 @@ export class WithdrawalSecurityService {
   }
 
   async verifyAuthentication(userId: string, response: AuthenticationResponseJSON, context: WithdrawalContext, challengeId?: string) {
-    if (!challengeId || !Types.ObjectId.isValid(challengeId)) throw new ConflictException('Device verification expired. Start again.');
+    if (!challengeId || !/^[A-Za-z0-9_-]{32}$/.test(challengeId)) throw new ConflictException('Device verification expired. Start again.');
     const challenge = await this.consumeChallenge(userId, challengeId, 'authentication', contextHash(context));
     if (!challenge) throw new ConflictException('Verification expired or withdrawal details changed. Try again.');
     const user = await this.users.findById(userId).select('+withdrawalPasskeys').exec();

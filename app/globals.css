@@ -161,6 +161,17 @@ body{overflow-x:hidden}@media(max-width:900px){.grid-lines>.container{grid-templ
 .dash-security-device-button{display:flex;align-items:center;justify-content:center;gap:8px;min-height:43px;padding:0 13px;border:1px solid #E8D58F;border-radius:10px;background:#FFFAEA;color:#765A00;font-size:12px;font-weight:700}
 .dash-security-device-button:disabled{opacity:.6}
 .dash-withdraw-security-settings>.dash-security-privacy{display:block;margin-top:12px!important}
+.dash-security-choice-buttons,.dash-withdraw-method-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:14px 0}
+.dash-security-choice-buttons button{display:flex;align-items:center;justify-content:center;gap:8px;min-height:45px;padding:8px 10px;border:1px solid #E5E8EA;border-radius:11px;background:#fff;color:#394148;font-size:12px;font-weight:700}
+.dash-security-choice-buttons button.selected,.dash-security-choice-buttons button:hover{border-color:#E8D58F;background:#FFFAEA;color:#765A00}
+.dash-security-pin-form{margin-top:14px;padding:13px;border:1px solid #ECEEF0;border-radius:12px;background:#FAFBFC}
+.dash-withdraw-method-options{grid-template-columns:1fr;margin:18px 0 10px}
+.dash-withdraw-method-options .dash-security-biometric{margin:0}
+.dash-withdraw-pin-form{padding:13px;border:1px solid #ECEEF0;border-radius:12px;background:#FAFBFC}
+.dash-withdraw-success-page{min-height:calc(100dvh - 166px)!important;padding:24px 18px 92px!important;border-radius:20px;background:#fff!important}
+.dash-withdraw-success-page button{background:#F0B90B;color:#20262C}
+#withdrawal-status-section{scroll-margin-top:24px}
+@media(max-width:600px){.dash-security-choice-buttons{grid-template-columns:1fr}.dash-withdraw-success-page{min-height:calc(100dvh - 145px)!important;padding:12px 16px 86px!important}.dash-withdraw-success-page button{min-height:54px}}
 @media(max-width:800px){
   .dash-modal-layer{inset:0;width:auto;height:auto;min-width:0;overflow-y:auto;}
   .dash-modal-card{min-width:0;}
