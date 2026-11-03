@@ -28,3 +28,6 @@ export class ReviewFinanceDto {
   @IsIn(['approved', 'rejected']) decision!: 'approved' | 'rejected';
   @IsOptional() @IsString() @MaxLength(500) rejectionReason?: string;
 }
+export class ArchiveHistoryDto {
+  @IsString() @MinLength(3) @MaxLength(500) reason!: string;
+}

@@ -94,7 +94,7 @@ export class FinanceService {
     }
   }
   async listUserTransactions(userId: string) {
-    const docs = await this.transactions.find({ userId: new Types.ObjectId(userId) }).sort({ createdAt: -1 }).limit(100).lean().exec();
+    const docs = await this.transactions.find({ userId: new Types.ObjectId(userId), archivedAt: { $exists: false } }).sort({ createdAt: -1 }).limit(100).lean().exec();
     return docs.map((doc) => ({ ...doc, id: String(doc._id) }));
   }
   async requestDeposit(userId: string, amount: number, txid?: string) {
@@ -122,13 +122,65 @@ export class FinanceService {
     try { return await this.transactions.create({ userId: new Types.ObjectId(userId), type: 'withdrawal', amount: input.amount, balanceType: input.balanceType, status: 'pending_review', destinationAddress: input.destinationAddress.trim(), network: input.network.trim(), maturedPrincipalWithdrawal: isMaturedPrincipal }); }
     catch (error) { await this.users.updateOne({ _id: userId }, { $inc: { [pendingField]: -input.amount } }).exec(); throw error; }
   }
-  async adminTransactions(type?: 'deposit' | 'withdrawal') {
-    const filter = type ? { type } : {};
+  async adminTransactions(type?: 'deposit' | 'withdrawal', includeArchived = false) {
+    const filter = { ...(type ? { type } : {}), ...(includeArchived ? { archivedAt: { $exists: true } } : { archivedAt: { $exists: false } }) };
     const items = await this.transactions.find(filter).sort({ createdAt: -1 }).limit(500).lean().exec();
     const ids = [...new Set(items.map((item) => String(item.userId)))];
     const users = await this.users.find({ _id: { $in: ids } }).select('fullName email').lean().exec();
     const map = new Map(users.map((u) => [String(u._id), u]));
     return items.map((item) => ({ ...item, id: String(item._id), user: map.get(String(item.userId)) ?? null }));
+  }
+  async archiveTransaction(id: string, type: 'deposit' | 'withdrawal', reason: string, actor: Actor) {
+    const session = await this.transactions.db.startSession();
+    let archived = false;
+    try {
+      await session.withTransaction(async () => {
+        const changed = await this.transactions.findOneAndUpdate(
+          { _id: id, type, status: { $in: ['approved', 'rejected'] }, archivedAt: { $exists: false } },
+          { $set: { archivedAt: new Date(), archivedBy: actor.email, archiveReason: reason.trim() } },
+          { new: true, session },
+        ).lean().exec();
+        if (!changed) return;
+        await this.audit.create([{ actorId: actor.id, actorEmail: actor.email, action: `finance.${type}.history_archived`, targetType: 'transaction', targetId: id, targetLabel: String(changed.userId), detail: reason.trim() }], { session });
+        archived = true;
+      });
+    } finally { await session.endSession(); }
+    if (!archived) throw new ConflictException('Only approved or rejected history can be archived. Refresh the list and try again.');
+    return { id, archived: true };
+  }
+  async restoreTransaction(id: string, type: 'deposit' | 'withdrawal', actor: Actor) {
+    const session = await this.transactions.db.startSession();
+    let restored = false;
+    try {
+      await session.withTransaction(async () => {
+        const changed = await this.transactions.findOneAndUpdate(
+          { _id: id, type, status: { $in: ['approved', 'rejected'] }, archivedAt: { $exists: true } },
+          { $unset: { archivedAt: 1, archivedBy: 1, archiveReason: 1 } },
+          { new: true, session },
+        ).lean().exec();
+        if (!changed) return;
+        await this.audit.create([{ actorId: actor.id, actorEmail: actor.email, action: `finance.${type}.history_restored`, targetType: 'transaction', targetId: id, targetLabel: String(changed.userId), detail: 'Archived history restored to normal views.' }], { session });
+        restored = true;
+      });
+    } finally { await session.endSession(); }
+    if (!restored) throw new ConflictException('This archived transaction could not be restored. Refresh the list and try again.');
+    return { id, restored: true };
+  }
+  async archiveTransactionHistory(type: 'deposit' | 'withdrawal', reason: string, actor: Actor) {
+    const session = await this.transactions.db.startSession();
+    let count = 0;
+    try {
+      await session.withTransaction(async () => {
+        const result = await this.transactions.updateMany(
+          { type, status: { $in: ['approved', 'rejected'] }, archivedAt: { $exists: false } },
+          { $set: { archivedAt: new Date(), archivedBy: actor.email, archiveReason: reason.trim() } },
+          { session },
+        ).exec();
+        count = result.modifiedCount;
+        if (count) await this.audit.create([{ actorId: actor.id, actorEmail: actor.email, action: `finance.${type}.history_cleared`, targetType: 'transaction_history', targetId: type, targetLabel: `${type} history`, detail: `${count} approved/rejected record(s) hidden from normal history views. ${reason.trim()}` }], { session });
+      });
+    } finally { await session.endSession(); }
+    return { type, archivedCount: count };
   }
   async review(id: string, expectedType: 'deposit' | 'withdrawal', decision: 'approved' | 'rejected', reason: string | undefined, actor: Actor) {
     if (expectedType === 'deposit') throw new ForbiddenException('Legacy real deposit approvals are disabled. TEST deposits never credit withdrawable balances.');

@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { timingSafeEqual } from 'node:crypto';
@@ -237,6 +237,75 @@ export class DepositsService implements OnModuleInit, OnModuleDestroy {
       differences: event.reconciliationDifferences ?? [], deliveries: event.deliveries,
       createdAt: event.createdAt, reviewedBy: event.reviewedBy, reviewDecision: event.reviewDecision, reviewReason: event.reviewReason,
     }));
+  }
+
+  async listAdminHistory(includeArchived = false) {
+    const events = await this.events.find({ ...(includeArchived ? { archivedAt: { $exists: true } } : { archivedAt: { $exists: false } }) }).sort({ createdAt: -1 }).limit(500).lean().exec();
+    const ids = [...new Set(events.map((event) => String(event.userId)))].map((id) => new Types.ObjectId(id));
+    const users = await this.users.find({ _id: { $in: ids } }).select('fullName email').lean().exec();
+    const userById = new Map(users.map((user) => [String(user._id), { fullName: user.fullName, email: user.email }]));
+    return events.map((event) => ({
+      id: String(event._id), user: userById.get(String(event.userId)) ?? null,
+      transactionHash: event.providerTransactionId, amount: String(event.amount), asset: 'USDT', network: 'TRON',
+      providerStatus: event.providerStatus, status: event.status, reason: event.reason,
+      differences: event.reconciliationDifferences ?? [], createdAt: event.createdAt,
+      archivedAt: event.archivedAt, archiveReason: event.archiveReason,
+    }));
+  }
+
+  async archiveHistoryRecord(id: string, reason: string, actor: AdminActor) {
+    const session = await this.events.db.startSession();
+    let changed = false;
+    try {
+      await session.withTransaction(async () => {
+        const event = await this.events.findOneAndUpdate(
+          { _id: id, status: { $in: ['credited', 'rejected'] }, archivedAt: { $exists: false } },
+          { $set: { archivedAt: new Date(), archivedBy: actor.id, archiveReason: reason.trim() } },
+          { new: true, session },
+        ).lean().exec();
+        if (!event) return;
+        await this.audit.create([{ actorId: actor.id, actorEmail: actor.email, action: 'deposit.history_archived', targetType: 'provider_deposit', targetId: id, targetLabel: event.providerTransactionId, detail: reason.trim() }], { session });
+        changed = true;
+      });
+    } finally { await session.endSession(); }
+    if (!changed) throw new ConflictException('Only credited or rejected deposits can be archived. Refresh the history and try again.');
+    return { id, archived: true };
+  }
+
+  async restoreHistoryRecord(id: string, actor: AdminActor) {
+    const session = await this.events.db.startSession();
+    let changed = false;
+    try {
+      await session.withTransaction(async () => {
+        const event = await this.events.findOneAndUpdate(
+          { _id: id, status: { $in: ['credited', 'rejected'] }, archivedAt: { $exists: true } },
+          { $unset: { archivedAt: 1, archivedBy: 1, archiveReason: 1 } },
+          { new: true, session },
+        ).lean().exec();
+        if (!event) return;
+        await this.audit.create([{ actorId: actor.id, actorEmail: actor.email, action: 'deposit.history_restored', targetType: 'provider_deposit', targetId: id, targetLabel: event.providerTransactionId, detail: 'Archived deposit history restored.' }], { session });
+        changed = true;
+      });
+    } finally { await session.endSession(); }
+    if (!changed) throw new NotFoundException('Archived deposit history was not found.');
+    return { id, restored: true };
+  }
+
+  async archiveResolvedDepositHistory(reason: string, actor: AdminActor) {
+    const session = await this.events.db.startSession();
+    let count = 0;
+    try {
+      await session.withTransaction(async () => {
+        const result = await this.events.updateMany(
+          { status: { $in: ['credited', 'rejected'] }, archivedAt: { $exists: false } },
+          { $set: { archivedAt: new Date(), archivedBy: actor.id, archiveReason: reason.trim() } },
+          { session },
+        ).exec();
+        count = result.modifiedCount;
+        if (count) await this.audit.create([{ actorId: actor.id, actorEmail: actor.email, action: 'deposit.history_cleared', targetType: 'provider_deposit_history', targetId: 'all_resolved', targetLabel: 'Resolved deposit history', detail: `${count} credited/rejected deposit record(s) hidden from normal history views. ${reason.trim()}` }], { session });
+      });
+    } finally { await session.endSession(); }
+    return { archivedCount: count };
   }
 
   async reviewDeposit(id: string, action: 'reject' | 'retry_verification', reason: string, actor: AdminActor) {

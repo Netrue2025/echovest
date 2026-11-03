@@ -24,6 +24,10 @@ export class FinanceTransaction {
   @Prop({ type: [{ positionId: { type: Types.ObjectId, required: true }, amount: { type: Number, required: true, min: 0.00000001 } }], default: [] }) profitPositionAllocations!: Array<{ positionId: Types.ObjectId; amount: number }>;
   @Prop({ default: false }) maturedPrincipalWithdrawal?: boolean;
   @Prop({ type: Types.ObjectId, default: null }) tradePositionId?: Types.ObjectId | null;
+  // History may be hidden by an authorized admin, but the financial record stays intact.
+  @Prop({ type: Date }) archivedAt?: Date;
+  @Prop({ type: String }) archivedBy?: string;
+  @Prop({ type: String, default: '' }) archiveReason?: string;
 }
 export const FinanceTransactionSchema = SchemaFactory.createForClass(FinanceTransaction);
 FinanceTransactionSchema.index({ userId: 1, createdAt: -1 });

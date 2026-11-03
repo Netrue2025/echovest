@@ -29,6 +29,10 @@ export class ProviderDeposit {
   @Prop({ type: Number, default: 0 }) reconciliationAttempts!: number;
   @Prop({ type: Boolean, default: false }) retryRequested!: boolean;
   @Prop({ type: Date, default: Date.now, index: true }) nextAttemptAt!: Date;
+  // Admin history hiding is soft-delete only; provider and ledger audit data remain intact.
+  @Prop({ type: Date }) archivedAt?: Date;
+  @Prop({ type: String }) archivedBy?: string;
+  @Prop({ type: String, default: '' }) archiveReason?: string;
 }
 export const ProviderDepositSchema = SchemaFactory.createForClass(ProviderDeposit);
 ProviderDepositSchema.index({ providerTransactionId: 1, providerStatus: 1 }, { unique: true });

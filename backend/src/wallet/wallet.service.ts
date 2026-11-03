@@ -87,7 +87,7 @@ export class WalletService {
     const [testBalance, history, providerHistory] = await Promise.all([
       mode === 'mock' ? this.testBalance(userId) : Promise.resolve('0'),
       this.ledger.find({ userId: new Types.ObjectId(userId) }).sort({ createdAt: -1 }).limit(30).lean().exec(),
-      this.providerDeposits.find({ userId: new Types.ObjectId(userId) }).sort({ createdAt: -1 }).limit(30).lean().exec(),
+      this.providerDeposits.find({ userId: new Types.ObjectId(userId), archivedAt: { $exists: false } }).sort({ createdAt: -1 }).limit(30).lean().exec(),
     ]);
     return {
       mode: mode as 'mock' | 'chainpay', testOnly: mode === 'mock',
