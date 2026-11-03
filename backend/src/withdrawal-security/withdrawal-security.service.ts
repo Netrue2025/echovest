@@ -41,12 +41,14 @@ export class WithdrawalSecurityService {
     if (!user) throw new UnauthorizedException('Sign in to continue.');
     const { rpID, rpName } = this.relyingParty();
     const options = await generateRegistrationOptions({ rpName, rpID, userID: new TextEncoder().encode(userId), userName: user.email, userDisplayName: user.fullName, attestationType: 'none', authenticatorSelection: { authenticatorAttachment: 'platform', residentKey: 'preferred', userVerification: 'required' }, excludeCredentials: (user.withdrawalPasskeys ?? []).map((key: any) => ({ id: key.credentialId, transports: key.transports })) });
-    await this.challenges.findOneAndUpdate({ userId: new Types.ObjectId(userId), purpose: 'registration' }, { $set: { challenge: options.challenge, contextHash: 'registration', expiresAt: new Date(Date.now() + 5 * 60_000) } }, { upsert: true, new: true }).exec();
-    return options;
+    const stored = await this.challenges.findOneAndUpdate({ userId: new Types.ObjectId(userId), purpose: 'registration' }, { $set: { challenge: options.challenge, contextHash: 'registration', expiresAt: new Date(Date.now() + 5 * 60_000) } }, { upsert: true, new: true }).exec();
+    if (!stored) throw new ConflictException('Could not start passkey setup. Please try again.');
+    return { options, challengeId: String(stored._id) };
   }
 
-  async verifyRegistration(userId: string, response: RegistrationResponseJSON, name?: string) {
-    const challenge = await this.challenges.findOneAndDelete({ userId, purpose: 'registration', expiresAt: { $gt: new Date() } }).exec();
+  async verifyRegistration(userId: string, response: RegistrationResponseJSON, name?: string, challengeId?: string) {
+    if (!challengeId || !Types.ObjectId.isValid(challengeId)) throw new ConflictException('Passkey setup expired. Start setup again.');
+    const challenge = await this.challenges.findOneAndDelete({ _id: challengeId, userId, purpose: 'registration', expiresAt: { $gt: new Date() } }).exec();
     if (!challenge) throw new ConflictException('Passkey setup expired. Try again.');
     const { rpID, origins } = this.relyingParty();
     const result = await verifyRegistrationResponse({ response, expectedChallenge: challenge.challenge, expectedOrigin: origins, expectedRPID: rpID, requireUserVerification: true });
@@ -63,12 +65,14 @@ export class WithdrawalSecurityService {
     if (!user?.withdrawalPasskeys?.length) throw new BadRequestException('Set up device verification or a withdrawal PIN first.');
     const { rpID } = this.relyingParty();
     const options = await generateAuthenticationOptions({ rpID, allowCredentials: (user.withdrawalPasskeys as any[]).map((key) => ({ id: key.credentialId, transports: key.transports })), userVerification: 'required' });
-    await this.challenges.findOneAndUpdate({ userId: new Types.ObjectId(userId), purpose: 'authentication' }, { $set: { challenge: options.challenge, contextHash: contextHash(context), expiresAt: new Date(Date.now() + 5 * 60_000) } }, { upsert: true, new: true }).exec();
-    return options;
+    const stored = await this.challenges.findOneAndUpdate({ userId: new Types.ObjectId(userId), purpose: 'authentication' }, { $set: { challenge: options.challenge, contextHash: contextHash(context), expiresAt: new Date(Date.now() + 5 * 60_000) } }, { upsert: true, new: true }).exec();
+    if (!stored) throw new ConflictException('Could not start device verification. Please try again.');
+    return { options, challengeId: String(stored._id) };
   }
 
-  async verifyAuthentication(userId: string, response: AuthenticationResponseJSON, context: WithdrawalContext) {
-    const challenge = await this.challenges.findOneAndDelete({ userId, purpose: 'authentication', contextHash: contextHash(context), expiresAt: { $gt: new Date() } }).exec();
+  async verifyAuthentication(userId: string, response: AuthenticationResponseJSON, context: WithdrawalContext, challengeId?: string) {
+    if (!challengeId || !Types.ObjectId.isValid(challengeId)) throw new ConflictException('Device verification expired. Start again.');
+    const challenge = await this.challenges.findOneAndDelete({ _id: challengeId, userId, purpose: 'authentication', contextHash: contextHash(context), expiresAt: { $gt: new Date() } }).exec();
     if (!challenge) throw new ConflictException('Verification expired or withdrawal details changed. Try again.');
     const user = await this.users.findById(userId).select('+withdrawalPasskeys').exec();
     const record: any = user?.withdrawalPasskeys?.find((key: any) => key.credentialId === response.id);

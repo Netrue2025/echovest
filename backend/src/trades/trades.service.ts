@@ -253,21 +253,25 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
         if (amount < (settings?.minimumWithdrawal ?? 0)) throw new BadRequestException(`The minimum withdrawal is ${settings?.minimumWithdrawal ?? 0} USD.`);
 
         const positions = await this.positions.find({ userId: new Types.ObjectId(userId), status: { $in: ['stopped', 'matured'] } }).sort({ joinedAt: 1 }).session(session).exec();
-        let remaining = amount;
+        // Work in the same 8-decimal unit precision as the withdrawal DTO so
+        // binary floating-point residue cannot reject an amount shown as available.
+        let remainingUnits = Math.round(amount * 100_000_000);
         const allocations: Array<{ positionId: Types.ObjectId; amount: number }> = [];
         for (const position of positions) {
-          if (remaining < 0.00000001) break;
+          if (remainingUnits <= 0) break;
           const signal = await this.signals.findById(position.signalId).session(session).exec();
           if (!signal) continue;
           const available = Math.max(0, this.interestAt(position, signal, now) - position.claimedInterest);
-          const allocation = Math.min(remaining, available);
-          if (allocation < 0.00000001) continue;
+          const availableUnits = Math.max(0, Math.floor(available * 100_000_000 + 1e-7));
+          const allocationUnits = Math.min(remainingUnits, availableUnits);
+          if (!allocationUnits) continue;
+          const allocation = allocationUnits / 100_000_000;
           const updated = await this.positions.updateOne({ _id: position._id, claimedInterest: position.claimedInterest }, { $inc: { claimedInterest: allocation } }, { session }).exec();
           if (!updated.matchedCount) throw new ConflictException('Profit balance changed. Refresh and try again.');
           allocations.push({ positionId: position._id as Types.ObjectId, amount: allocation });
-          remaining = Math.max(0, remaining - allocation);
+          remainingUnits -= allocationUnits;
         }
-        if (remaining > 0.00000001) throw new BadRequestException('The requested amount exceeds available profit from closed trades.');
+        if (remainingUnits > 0) throw new BadRequestException('The requested amount exceeds available profit from closed trades. Refresh the balance and try again.');
 
         const docs = await this.transactions.create([{ userId: new Types.ObjectId(userId), type: 'withdrawal', amount, balanceType: 'trading', status: 'pending_review', destinationAddress: destinationAddress.trim(), network: network.trim(), sourceType: 'trade_interest', profitLedger: true, profitPositionAllocations: allocations }], { session });
         createdTransaction = docs[0];

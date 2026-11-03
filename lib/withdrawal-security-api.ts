@@ -27,14 +27,14 @@ export const withdrawalSecurityApi = {
   setPin: (pin: string) => request<WithdrawalSecurityStatus>('pin', { pin }),
   async registerPasskey() {
     if (!window.PublicKeyCredential || !navigator.credentials) throw new Error('This browser does not support device biometric verification. Set a withdrawal PIN instead.');
-    const options = await request<Parameters<typeof startRegistration>[0]['optionsJSON']>('passkey/registration-options', {});
-    const response = await startRegistration({ optionsJSON: options });
-    return request<WithdrawalSecurityStatus>('passkey/registration-verification', { response, name: 'This device' });
+    const setup = await request<{ options: Parameters<typeof startRegistration>[0]['optionsJSON']; challengeId: string }>('passkey/registration-options', {});
+    const response = await startRegistration({ optionsJSON: setup.options });
+    return request<WithdrawalSecurityStatus>('passkey/registration-verification', { response, name: 'This device', challengeId: setup.challengeId });
   },
   async verifyPasskey(context: Context) {
     if (!window.PublicKeyCredential || !navigator.credentials) throw new Error('This browser does not support device biometric verification.');
-    const options = await request<Parameters<typeof startAuthentication>[0]['optionsJSON']>('passkey/authentication-options', context);
-    const response = await startAuthentication({ optionsJSON: options });
-    return request<{ verificationToken: string }>('passkey/authentication-verification', { ...context, response });
+    const setup = await request<{ options: Parameters<typeof startAuthentication>[0]['optionsJSON']; challengeId: string }>('passkey/authentication-options', context);
+    const response = await startAuthentication({ optionsJSON: setup.options });
+    return request<{ verificationToken: string }>('passkey/authentication-verification', { ...context, response, challengeId: setup.challengeId });
   },
 };
