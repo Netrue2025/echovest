@@ -29,6 +29,9 @@ export class TradesController {
   @Patch('admin/signals/:id/close') @UseGuards(OriginGuard, SessionGuard, AdminAccessGuard) @RequireAdminPermissions('signals.manage')
   close(@Req() request: Request & { user?: User }, @Param('id') id: string) { return this.trades.closeSignal(id, { id: String(request.user!._id), email: request.user!.email }); }
 
+  @Patch('admin/signals/:id/cancel') @UseGuards(OriginGuard, SessionGuard, AdminAccessGuard) @RequireAdminPermissions('signals.manage')
+  cancel(@Req() request: Request & { user?: User }, @Param('id') id: string) { return this.trades.cancelScheduledSignal(id, { id: String(request.user!._id), email: request.user!.email }); }
+
   @Get('admin/signals') @UseGuards(SessionGuard, AdminAccessGuard) @RequireAdminPermissions('signals.manage')
   adminSignals() { return this.trades.adminSignals(); }
 

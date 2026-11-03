@@ -13,6 +13,8 @@ import { WithdrawalSecurityService } from '../withdrawal-security/withdrawal-sec
 
 type Actor = { id: string; email: string };
 const DAY_MS = 24 * 60 * 60 * 1000;
+const AMOUNT_SCALE = 100_000_000;
+const amountUnits = (value: number) => Math.round((value + Number.EPSILON) * AMOUNT_SCALE);
 const duration = (days: number) => days * DAY_MS;
 const signalDuration = (signal: Pick<CopyTradeSignal, 'startsAt' | 'endsAt' | 'lockDays'>) => {
   const scheduledDuration = signal.endsAt ? new Date(signal.endsAt).getTime() - new Date(signal.startsAt).getTime() : 0;
@@ -72,6 +74,15 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
     if (!signal) throw new ConflictException('This trade is already closed or unavailable.');
     await this.writeAudit(actor.id, actor.email, 'trades.signal.closed', signalId, `${signal.pair} copy trade`, 'Stopped accepting new participants. Existing positions continue until their individual maturity dates.');
     await this.notifications.notifyAll(`Copy trade closed: ${signal.pair}`, `${signal.title} is no longer accepting new participants. Existing positions continue under their original terms.`, '/dashboard?view=trading').catch((error) => this.logger.warn(`Trade close notification failed: ${error instanceof Error ? error.message : 'unknown error'}`));
+    return this.serializeSignal(signal);
+  }
+
+  async cancelScheduledSignal(signalId: string, actor: Actor) {
+    if (!Types.ObjectId.isValid(signalId)) throw new NotFoundException('Copy trade not found.');
+    const signal = await this.signals.findOneAndUpdate({ _id: signalId, status: 'scheduled', startsAt: { $gt: new Date() } }, { $set: { status: 'cancelled' } }, { new: true }).exec();
+    if (!signal) throw new ConflictException('Only a future scheduled trade can be cancelled. It may already be live or past its start time.');
+    await this.writeAudit(actor.id, actor.email, 'trades.signal.cancelled', signalId, `${signal.pair} copy trade`, `Scheduled launch for ${new Date(signal.startsAt).toISOString()} cancelled before going live.`);
+    await this.notifications.notifyAll(`Copy trade cancelled: ${signal.pair}`, `${signal.title} will not go live as scheduled.`, '/dashboard?view=trading').catch((error) => this.logger.warn(`Trade cancellation notification failed: ${error instanceof Error ? error.message : 'unknown error'}`));
     return this.serializeSignal(signal);
   }
 
@@ -255,17 +266,19 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
         const positions = await this.positions.find({ userId: new Types.ObjectId(userId), status: { $in: ['stopped', 'matured'] } }).sort({ joinedAt: 1 }).session(session).exec();
         // Work in the same 8-decimal unit precision as the withdrawal DTO so
         // binary floating-point residue cannot reject an amount shown as available.
-        let remainingUnits = Math.round(amount * 100_000_000);
+        let remainingUnits = amountUnits(amount);
         const allocations: Array<{ positionId: Types.ObjectId; amount: number }> = [];
         for (const position of positions) {
           if (remainingUnits <= 0) break;
           const signal = await this.signals.findById(position.signalId).session(session).exec();
           if (!signal) continue;
-          const available = Math.max(0, this.interestAt(position, signal, now) - position.claimedInterest);
-          const availableUnits = Math.max(0, Math.floor(available * 100_000_000 + 1e-7));
+          // Round earned and already-claimed amounts independently to the
+          // withdrawal API's 8-decimal precision. Flooring the difference
+          // caused a one-unit shortfall versus the balance shown to users.
+          const availableUnits = Math.max(0, amountUnits(this.interestAt(position, signal, now)) - amountUnits(position.claimedInterest));
           const allocationUnits = Math.min(remainingUnits, availableUnits);
           if (!allocationUnits) continue;
-          const allocation = allocationUnits / 100_000_000;
+          const allocation = allocationUnits / AMOUNT_SCALE;
           const updated = await this.positions.updateOne({ _id: position._id, claimedInterest: position.claimedInterest }, { $inc: { claimedInterest: allocation } }, { session }).exec();
           if (!updated.matchedCount) throw new ConflictException('Profit balance changed. Refresh and try again.');
           allocations.push({ positionId: position._id as Types.ObjectId, amount: allocation });

@@ -11,5 +11,6 @@ import { ProviderDeposit, ProviderDepositSchema } from '../deposits/provider-dep
 import { TestDepositAccount, TestDepositAccountSchema } from '../deposit-accounts/test-deposit-account.schema.js';
 import { WalletController } from './wallet.controller.js';
 import { WalletService } from './wallet.service.js';
-@Module({ imports: [MongooseModule.forFeature([{ name: ProviderDeposit.name, schema: ProviderDepositSchema }, { name: TestDepositAccount.name, schema: TestDepositAccountSchema }]), DepositAccountsModule, LedgerModule, UsersModule, SessionsModule, ChainPayModule], controllers: [WalletController], providers: [WalletService, SessionGuard, OriginGuard], exports: [WalletService] })
+import { FinanceSettings, FinanceSettingsSchema, FinanceTransaction, FinanceTransactionSchema } from '../finance/finance.schema.js';
+@Module({ imports: [MongooseModule.forFeature([{ name: ProviderDeposit.name, schema: ProviderDepositSchema }, { name: TestDepositAccount.name, schema: TestDepositAccountSchema }, { name: FinanceSettings.name, schema: FinanceSettingsSchema }, { name: FinanceTransaction.name, schema: FinanceTransactionSchema }]), DepositAccountsModule, LedgerModule, UsersModule, SessionsModule, ChainPayModule], controllers: [WalletController], providers: [WalletService, SessionGuard, OriginGuard], exports: [WalletService] })
 export class WalletModule {}

@@ -59,6 +59,13 @@ export function AdminTradeManager() {
     finally { setClosing(""); }
   }
 
+  async function cancelSignal(signal: SignalRecord) {
+    setClosing(signal.id); setError(''); setNotice('');
+    try { await tradeRequest(`admin/signals/${signal.id}/cancel`, 'PATCH', {}); setNotice(`${signal.pair} scheduled trade cancelled before launch.`); await load(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not cancel this trade.'); }
+    finally { setClosing(''); }
+  }
+
   const formatDate = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
   return <div className="admin-trading-workspace">
     <form className="admin-panel admin-trade-form" onSubmit={submit}>
@@ -77,7 +84,7 @@ export function AdminTradeManager() {
       <div className="admin-trade-form-footer"><span><Clock3 size={14}/> Upcoming trades go live at the selected start time and stop accepting entries at the end time.</span><button className="admin-primary-button" type="submit" disabled={saving}>{saving ? "Saving schedule…" : "Schedule trade"}<ArrowUpRight size={15}/></button></div>
     </form>
     <article className="admin-panel admin-records admin-trade-schedules"><div className="admin-panel-head"><div><h2>Trade schedules</h2><p>Live, upcoming, and completed copy trades.</p></div><button type="button" className="admin-outline-button" onClick={() => void load()} disabled={loading}><RefreshCw size={14}/> Refresh</button></div>
-      {loading ? <p className="admin-trade-empty">Loading trade schedules…</p> : signals.length ? <div className="admin-trade-list">{signals.map((trade) => <div className="admin-trade-row" key={trade.id}><span className={`admin-trade-pair-icon ${trade.status}`}><Signal size={17}/></span><span className="admin-trade-row-main"><strong>{trade.pair}<small>{trade.title}</small></strong><span>{trade.status === "scheduled" ? `Opens ${formatDate(trade.startsAt)}` : trade.status === "open" ? `Live since ${formatDate(trade.startsAt)}` : `Started ${formatDate(trade.startsAt)}`} · Ends {formatDate(trade.endsAt)}</span></span><span className={`admin-trade-status ${trade.status}`}>{trade.status}</span><span className="admin-trade-row-roi"><strong>{trade.roiPercent}%</strong><small>{formatLockTerm(trade.startsAt, trade.endsAt, trade.lockDays)} lock</small></span><span className="admin-trade-copiers"><Users size={14}/>{trade.copiedBy}</span>{trade.status === "open" && <button className="admin-trade-close" type="button" onClick={() => void closeSignal(trade)} disabled={closing === trade.id}><Ban size={13}/>{closing === trade.id ? "Closing…" : "Close entries"}</button>}</div>)}</div> : <p className="admin-trade-empty">No trade schedules yet. Create one above to get started.</p>}
+      {loading ? <p className="admin-trade-empty">Loading trade schedules…</p> : signals.length ? <div className="admin-trade-list">{signals.map((trade) => <div className="admin-trade-row" key={trade.id}><span className={`admin-trade-pair-icon ${trade.status}`}><Signal size={17}/></span><span className="admin-trade-row-main"><strong>{trade.pair}<small>{trade.title}</small></strong><span>{trade.status === "scheduled" ? `Opens ${formatDate(trade.startsAt)}` : trade.status === "open" ? `Live since ${formatDate(trade.startsAt)}` : `Started ${formatDate(trade.startsAt)}`} · Ends {formatDate(trade.endsAt)}</span></span><span className={`admin-trade-status ${trade.status}`}>{trade.status}</span><span className="admin-trade-row-roi"><strong>{trade.roiPercent}%</strong><small>{formatLockTerm(trade.startsAt, trade.endsAt, trade.lockDays)} lock</small></span><span className="admin-trade-copiers"><Users size={14}/>{trade.copiedBy}</span>{trade.status === "scheduled" && <button className="admin-trade-close" type="button" onClick={() => void cancelSignal(trade)} disabled={closing === trade.id}><Ban size={13}/>{closing === trade.id ? "Cancelling..." : "Cancel schedule"}</button>}{trade.status === "open" && <button className="admin-trade-close" type="button" onClick={() => void closeSignal(trade)} disabled={closing === trade.id}><Ban size={13}/>{closing === trade.id ? "Closing…" : "Close entries"}</button>}</div>)}</div> : <p className="admin-trade-empty">No trade schedules yet. Create one above to get started.</p>}
     </article>
   </div>;
 }

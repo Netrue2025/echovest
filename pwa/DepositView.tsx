@@ -3,6 +3,7 @@
 import { ArrowLeft, ArrowRight, Check, Clipboard, Info, LoaderCircle, QrCode, RefreshCw, TriangleAlert, Wallet } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { DepositDetails, walletRequest } from '../lib/wallet-api';
+import { financeRequest } from '../lib/finance-api';
 import { NotificationBell } from './NotificationCenter';
 
 const numberFormat = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
@@ -13,6 +14,7 @@ export function DepositView() {
   const [details, setDetails] = useState<DepositDetails | null>(null);
   const [qr, setQr] = useState('');
   const [amount, setAmount] = useState('');
+  const [txid, setTxid] = useState('');
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -40,6 +42,7 @@ export function DepositView() {
       setError('Enter an amount greater than zero with up to 6 decimal places.');
       return;
     }
+    if (details?.minimumDeposit && Number(amount) < details.minimumDeposit) { setError(`The minimum deposit is ${details.minimumDeposit} USDT.`); return; }
     setLoading(true); setError(''); setNotice('');
     try {
       const data = await refresh();
@@ -57,12 +60,25 @@ export function DepositView() {
     } finally { setLoading(false); }
   }
 
-  function editAmount() { setStep('amount'); setError(''); setNotice(''); }
+  function editAmount() { setStep('amount'); setError(''); setNotice(''); setTxid(''); }
 
   async function copyAddress() {
-    if (!details?.account.address || details.mode !== 'chainpay') return;
+    if (!details?.account.address || !['chainpay', 'manual'].includes(details.mode)) return;
     try { await navigator.clipboard.writeText(details.account.address); setCopied(true); window.setTimeout(() => setCopied(false), 1500); }
     catch { setError('Clipboard is unavailable. Select the address and copy it.'); }
+  }
+
+  async function submitManualDeposit() {
+    if (!details || details.mode !== 'manual') return;
+    if (txid.trim().length < 8) { setError('Enter the transaction hash from your wallet.'); return; }
+    setBusy(true); setError(''); setNotice('');
+    try {
+      await financeRequest('deposits', 'POST', { amount: Number(amount), txid: txid.trim() });
+      setNotice('Deposit submitted. Your balance will update after an admin verifies the transaction.');
+      setTxid('');
+      await refresh();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not submit this deposit.'); }
+    finally { setBusy(false); }
   }
 
   async function simulate(status: MockStatus) {
@@ -77,7 +93,7 @@ export function DepositView() {
   }
 
   const isMock = details?.mode === 'mock';
-  const copy = details?.mode === 'chainpay';
+  const copy = details?.mode === 'chainpay' || details?.mode === 'manual';
   const history = details?.history ?? [];
 
   return <section className="dash-deposit-page">
@@ -96,18 +112,19 @@ export function DepositView() {
         <div className="dash-panel-heading"><div><h2>How much would you like to deposit?</h2><p>Your personal USDT/TRON address will be ready on the next step.</p></div></div>
         <label className="dash-deposit-label" htmlFor="deposit-amount">Deposit amount</label>
         <div className="dash-deposit-input-wrap"><input id="deposit-amount" value={amount} inputMode="decimal" autoComplete="off" onChange={(event) => setAmount(event.target.value)} placeholder="0.00" /><span>USDT</span></div>
-        <p className="dash-deposit-helper">Enter the amount you plan to send. The credited amount is based on the confirmed on-chain transfer.</p>
+        <p className="dash-deposit-helper">{details?.minimumDeposit ? `Minimum deposit: ${details.minimumDeposit} USDT. ` : ''}Enter the amount you plan to send.</p>
         <button className="dash-deposit-submit" type="button" onClick={() => void continueToAddress()} disabled={loading}>{loading ? <><LoaderCircle size={16} className="admin-loading-orbit" /> Preparing address…</> : <>Continue <ArrowRight size={16} /></>}</button>
         {error && <p className="dash-deposit-error" role="alert">{error}</p>}
       </article> : <>
         <article className="dash-panel dash-deposit-panel dash-prototype-card">
           {details ? <>
-            <div className="dash-panel-heading"><div><h2>{isMock ? 'Your TEST deposit account' : 'Your USDT deposit account'}</h2><p>{isMock ? 'A development-only account for simulations.' : 'Permanent account · USDT on TRON (TRC20)'}</p></div><span className="dash-prototype-tag">{isMock ? 'TEST' : 'CHAINPAY'}</span></div>
+            <div className="dash-panel-heading"><div><h2>{isMock ? 'Your TEST deposit account' : details.mode === 'manual' ? 'Deposit to the platform wallet' : 'Your USDT deposit account'}</h2><p>{isMock ? 'A development-only account for simulations.' : details.mode === 'manual' ? 'Your deposit will be reviewed by the finance team.' : 'Permanent account · USDT on TRON (TRC20)'}</p></div><span className="dash-prototype-tag">{isMock ? 'TEST' : details.mode === 'manual' ? 'MANUAL' : 'CHAINPAY'}</span></div>
             <button type="button" className="dash-deposit-edit-amount" onClick={editAmount}><ArrowLeft size={14} /> Change amount · {numberFormat.format(Number(amount))} USDT</button>
-            {copy ? <div className="dash-deposit-address dash-prototype-address"><div className="dash-deposit-address-icon"><Wallet size={21} /></div><div><small>YOUR PERMANENT DEPOSIT ADDRESS</small><strong>{details.account.address}</strong><span>Network: TRON (TRC20) · Asset: USDT</span></div><button type="button" onClick={copyAddress} disabled={!details.account.address}>{copied ? <Check size={17} /> : <Clipboard size={17} />} {copied ? 'Copied' : 'Copy'}</button></div>
+            {copy ? <div className="dash-deposit-address dash-prototype-address"><div className="dash-deposit-address-icon"><Wallet size={21} /></div><div><small>{details.mode === 'manual' ? 'PLATFORM DEPOSIT ADDRESS' : 'YOUR PERMANENT DEPOSIT ADDRESS'}</small><strong>{details.account.address}</strong><span>Network: {details.depositNetwork || 'TRON (TRC20)'} · Asset: USDT</span></div><button type="button" onClick={copyAddress} disabled={!details.account.address}>{copied ? <Check size={17} /> : <Clipboard size={17} />} {copied ? 'Copied' : 'Copy'}</button></div>
               : <div className="dash-deposit-address dash-prototype-address"><div className="dash-deposit-address-icon"><Wallet size={21} /></div><div><small>MOCK ADDRESS — NOT ON BLOCKCHAIN</small><strong>{details.account.address}</strong><span>Use the simulation controls below. Never send USDT here.</span></div></div>}
             {qr && <div className="dash-prototype-qr"><img src={qr} alt={isMock ? 'QR code for TEST mock address, not a blockchain address' : 'QR code for your USDT TRON deposit address'} /><span><QrCode size={15} /> {isMock ? 'TEST only · not for sending funds' : 'Scan to copy the address'}</span></div>}
-            <div className="dash-deposit-network"><span><i />Network</span><strong>TRON (TRC20)</strong></div>
+            {details.mode === 'manual' && <><div className="dash-deposit-network"><span><i />Network</span><strong>{details.depositNetwork}</strong></div>{details.depositInstructions && <div className="dash-deposit-helper">{details.depositInstructions}</div>}<label className="dash-deposit-label" htmlFor="deposit-txid">Transaction hash</label><div className="dash-deposit-input-wrap"><input id="deposit-txid" value={txid} onChange={(event) => setTxid(event.target.value)} placeholder="Paste transaction hash" autoComplete="off" /></div><button className="dash-deposit-submit" type="button" onClick={() => void submitManualDeposit()} disabled={busy}>{busy ? 'Submitting…' : 'Submit for review'}</button></>}
+            {details.mode === 'chainpay' && <div className="dash-deposit-network"><span><i />Network</span><strong>{details.depositNetwork || 'TRON (TRC20)'}</strong></div>}
           </> : <div className="dash-prototype-loading"><LoaderCircle className="admin-loading-orbit" size={21} /> Loading deposit details…</div>}
         </article>
 

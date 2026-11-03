@@ -13,6 +13,7 @@ export class WithdrawalRequestDto {
   @IsOptional() @IsString() @MaxLength(256) verificationToken?: string;
 }
 export class FinanceSettingsDto {
+  @IsIn(['manual', 'chainpay']) depositMethod!: 'manual' | 'chainpay';
   @IsString() @MaxLength(256) depositWalletAddress!: string;
   @IsString() @MaxLength(80) depositNetwork!: string;
   @IsString() @MaxLength(2000) depositInstructions!: string;

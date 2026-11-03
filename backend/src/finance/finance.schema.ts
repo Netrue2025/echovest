@@ -38,6 +38,7 @@ export class FinanceSettings {
   @Prop({ default: '' }) depositWalletAddress!: string;
   @Prop({ default: '' }) depositNetwork!: string;
   @Prop({ default: '' }) depositInstructions!: string;
+  @Prop({ enum: ['manual', 'chainpay'] }) depositMethod?: 'manual' | 'chainpay';
   @Prop({ default: 0, min: 0 }) minimumDeposit!: number;
   @Prop({ default: 0, min: 0 }) minimumWithdrawal!: number;
   @Prop({ default: 60, min: 1, max: 3650 }) capitalLockDays!: number;

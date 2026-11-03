@@ -34,6 +34,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const [pushSupported, setPushSupported] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
+  const [showPushPrompt, setShowPushPrompt] = useState(false);
   const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
@@ -53,6 +54,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     if ("serviceWorker" in navigator) navigator.serviceWorker.ready.then((registration) => registration.pushManager.getSubscription()).then((subscription) => setPushEnabled(Boolean(subscription))).catch(() => undefined);
     return () => window.clearInterval(timer);
   }, [refresh]);
+
+  useEffect(() => {
+    if (!pushSupported || pushEnabled || Notification.permission === 'denied') { setShowPushPrompt(false); return; }
+    const snoozedUntil = Number(window.localStorage.getItem('echovest.push-prompt-snoozed-until') || 0);
+    if (snoozedUntil > Date.now()) return;
+    const timer = window.setTimeout(() => setShowPushPrompt(true), 900);
+    return () => window.clearTimeout(timer);
+  }, [pushSupported, pushEnabled]);
 
   const markRead = useCallback(async (item: UserNotification) => {
     if (item.readAt) return;
@@ -97,7 +106,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value: NotificationContextValue = { notifications, unreadCount, loading, pushSupported, pushEnabled, pushBusy, error, refresh, markRead, enablePush, disablePush, clearError: () => setError("") };
-  return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;
+  return <NotificationContext.Provider value={value}>{children}{showPushPrompt && typeof document !== 'undefined' && createPortal(<div className="dash-notification-modal-backdrop" role="presentation"><section className="dash-notification-modal dash-push-optin-modal" role="dialog" aria-modal="true" aria-labelledby="dash-push-optin-title"><span className="dash-push-icon"><Bell size={20} /></span><h2 id="dash-push-optin-title">Stay up to date</h2><p>Enable notifications for deposit and withdrawal updates, trade openings, and important account messages.</p>{error && <p className="dash-notification-error" role="alert">{error}</p>}<button type="button" className="dash-notification-modal-done" disabled={pushBusy} onClick={() => void enablePush()}>{pushBusy ? 'Enabling…' : 'Enable notifications'}</button><button type="button" className="dash-push-remind-later" onClick={() => { window.localStorage.setItem('echovest.push-prompt-snoozed-until', String(Date.now() + 24 * 60 * 60 * 1000)); window.setTimeout(() => setShowPushPrompt(true), 24 * 60 * 60 * 1000); setShowPushPrompt(false); }}>Remind me later</button></section></div>, document.body)}</NotificationContext.Provider>;
 }
 
 export function NotificationBell({ className, label = "Open notifications", size = 20 }: { className: string; label?: string; size?: number }) {

@@ -8,6 +8,7 @@ import { LedgerEntry } from '../ledger/ledger-entry.schema.js';
 import { ChainPayService } from '../providers/chainpay/chainpay.service.js';
 import { ProviderDeposit } from '../deposits/provider-deposit.schema.js';
 import { TestDepositAccount } from '../deposit-accounts/test-deposit-account.schema.js';
+import { FinanceSettings, FinanceTransaction } from '../finance/finance.schema.js';
 
 function toMicros(value: string) {
   if (!/^(?:0|[1-9]\d{0,9})(?:\.\d{1,6})?$/.test(value)) throw new BadRequestException('Enter a valid USDT amount with up to 6 decimal places.');
@@ -23,11 +24,13 @@ export class WalletService {
     @InjectModel(TestDepositAccount.name) private readonly testAccounts: Model<TestDepositAccount>,
     @InjectModel(LedgerEntry.name) private readonly ledger: Model<LedgerEntry>,
     @InjectModel(ProviderDeposit.name) private readonly providerDeposits: Model<ProviderDeposit>,
+    @InjectModel(FinanceSettings.name) private readonly financeSettings: Model<FinanceSettings>,
+    @InjectModel(FinanceTransaction.name) private readonly financeTransactions: Model<FinanceTransaction>,
     private readonly config: ConfigService,
     private readonly chainPay: ChainPayService,
   ) {}
 
-  private mode() { return this.config.get<string>('DEPOSIT_PROVIDER_MODE') ?? 'disabled'; }
+  private mode(method?: FinanceSettings['depositMethod']) { return method ?? this.config.get<string>('DEPOSIT_PROVIDER_MODE') ?? 'disabled'; }
   private async testAccount(userId: string) {
     const filter = { userId: new Types.ObjectId(userId), asset: 'USDT', network: 'TRON' };
     let account = await this.testAccounts.findOne(filter).exec();
@@ -43,8 +46,8 @@ export class WalletService {
     if (!account) throw new ConflictException('Could not create a permanent TEST deposit account. Try again.');
     return account;
   }
-  private async account(userId: string) {
-    const mode = this.mode();
+  private async account(userId: string, selectedMode = this.mode()) {
+    const mode = selectedMode;
     if (!['mock', 'chainpay'].includes(mode)) throw new ForbiddenException('Deposits are disabled until a provider mode is configured.');
     if (mode === 'mock' && this.config.get<string>('NODE_ENV') !== 'development') throw new ForbiddenException('Mock deposits are available only in development.');
     if (mode === 'mock') return this.testAccount(userId);
@@ -77,13 +80,22 @@ export class WalletService {
   }
 
   async depositDetails(userId: string) {
-    if (this.mode() === 'chainpay' && this.config.get<string>('CHAINPAY_LIVE_DEPOSITS_ENABLED') !== 'true') {
+    const settings = await this.financeSettings.findOne({ key: 'platform' }).lean().exec();
+    const mode = this.mode(settings?.depositMethod);
+    if (settings?.depositMethod === 'manual') {
+      const history = await this.financeTransactions.find({ userId: new Types.ObjectId(userId), type: 'deposit', archivedAt: { $exists: false } }).sort({ createdAt: -1 }).limit(30).lean().exec();
+      return { mode: 'manual' as const, testOnly: false, liveDepositsDisabled: !settings.depositWalletAddress || !settings.depositNetwork,
+        account: { asset: 'USDT' as const, network: 'TRON' as const, protocol: 'TRC20' as const, address: settings.depositWalletAddress, externalReference: '', status: settings.depositWalletAddress && settings.depositNetwork ? 'active' : 'disabled' },
+        depositNetwork: settings.depositNetwork, depositInstructions: settings.depositInstructions, minimumDeposit: settings.minimumDeposit,
+        testWallet: { asset: 'USDT' as const, network: 'TRON' as const, balance: '0', withdrawable: false as const },
+        history: history.map((entry) => ({ id: String(entry._id), amount: String(entry.amount), status: entry.status, description: entry.rejectionReason || `Manual deposit · ${entry.network}`, createdAt: entry.createdAt, testOnly: false })) };
+    }
+    if (mode === 'chainpay' && this.config.get<string>('CHAINPAY_LIVE_DEPOSITS_ENABLED') !== 'true') {
       return { mode: 'chainpay' as const, testOnly: false, liveDepositsDisabled: true,
         account: { asset: 'USDT' as const, network: 'TRON' as const, protocol: 'TRC20' as const, address: '', externalReference: '', status: 'disabled' },
         testWallet: { asset: 'USDT' as const, network: 'TRON' as const, balance: '0', withdrawable: false as const }, history: [] };
     }
-    const account = await this.account(userId);
-    const mode = this.mode();
+    const account = await this.account(userId, mode);
     const [testBalance, history, providerHistory] = await Promise.all([
       mode === 'mock' ? this.testBalance(userId) : Promise.resolve('0'),
       this.ledger.find({ userId: new Types.ObjectId(userId) }).sort({ createdAt: -1 }).limit(30).lean().exec(),
