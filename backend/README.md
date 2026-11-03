@@ -35,6 +35,7 @@ Add these variables to the backend service in Railway (do not upload `.env`):
 - `EMAIL_FROM`: valid sender, for example `EchoVest <verify@your-domain.com>`.
 - `FRONTEND_URL`: exact public frontend origin, for example `https://your-frontend.up.railway.app` (no path or trailing slash).
 - `SESSION_SECRET`: a unique random secret of at least 32 characters.
+- `WEBAUTHN_RP_ID` (optional): the frontend hostname used for passkeys, such as `echovest-production.up.railway.app`. If omitted, the backend uses the hostname from the first `FRONTEND_URL` origin. It must match the frontend host users visit.
 - `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_PASSWORD`: environment-controlled super-admin login. Use a dedicated email and a unique password of at least 12 characters. The backend seeds this account at startup; keep these values private and redeploy the backend after changing them.
 - `NODE_ENV`: `production`.
 - `SESSION_SAME_SITE`: `none` when the frontend and API are on different sites; use HTTPS. `lax` is suitable when both are same-site.
@@ -80,7 +81,7 @@ The deposit prototype adds an authenticated `GET /wallet/deposit-address?asset=U
 
 Set `DEPOSIT_PROVIDER_MODE=mock` and `NODE_ENV=development` locally to use the TEST simulator. The confirmed test ledger uses MongoDB Decimal128 values with six-decimal precision; pending, failed, invalid, and duplicate events do not increase the TEST balance. The TEST balance is separate from `User.tradingBalance`, referral funds, trade balances, and withdrawal requests. The mock event route is denied outside development mode.
 
-The old `POST /finance/deposits` and admin deposit approval route are disabled so no deposit path in this prototype can credit withdrawable balances. Existing withdrawal behavior is unchanged. Do not send crypto to a TEST address.
+The old `POST /finance/deposits` and admin deposit approval route are disabled so no deposit path in this prototype can credit withdrawable balances. User withdrawals require a six-digit withdrawal PIN or a registered device passkey with user verification. PINs are Argon2id-hashed with persisted failed-attempt lockouts; passkey challenges are one-time and proofs expire after five minutes and are bound to the amount, wallet source, destination, and network. Biometric data stays on the user’s device; the backend stores the passkey public key. Passkeys require HTTPS in production and a matching `WEBAUTHN_RP_ID`; users can use the PIN when a device does not support passkeys. Do not send crypto to a TEST address.
 
 ### ChainPay configuration and release gate
 

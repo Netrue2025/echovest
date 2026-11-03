@@ -1,4 +1,4 @@
-import { IsDateString, IsNumber, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsDateString, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 export class CreateTradeSignalDto {
   @IsString() @MinLength(3) @MaxLength(100) title!: string;
@@ -18,4 +18,6 @@ export class WithdrawTradeInterestDto {
   @IsNumber({ maxDecimalPlaces: 8 }) @Min(0.01) amount!: number;
   @IsString() @MinLength(8) @MaxLength(256) destinationAddress!: string;
   @IsString() @MinLength(1) @MaxLength(80) network!: string;
+  @IsOptional() @IsString() @Matches(/^\d{6}$/) pin?: string;
+  @IsOptional() @IsString() @MaxLength(256) verificationToken?: string;
 }

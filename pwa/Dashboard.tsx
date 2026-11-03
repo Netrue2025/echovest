@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  ArrowDownLeft, ArrowRight, ArrowUpRight, Award, Check, ChevronDown, Clock3, Copy, LockKeyhole,
+  ArrowDownLeft, ArrowRight, ArrowUpRight, Award, Check, ChevronDown, Clock3, Copy, Fingerprint, KeyRound, LockKeyhole,
   CircleHelp, Crown, Gem, Headphones, Home, LogOut, Medal, Menu, ReceiptText, Settings, ShieldCheck, CalendarDays,
   Sparkles, Users, Wallet, X, Zap, User, Plus, Link2, Share2, UserPlus, Coins,
 } from "lucide-react";
@@ -19,6 +19,8 @@ import { referralRequest, ReferralOverview } from "../lib/referral-api";
 import { CopyTradeSignal, TradeDashboard, TradePosition, tradeRequest } from "../lib/trading-api";
 import { withdrawalScheduleLabel } from "../lib/withdrawal-schedule";
 import { SupportChat } from "./SupportChat";
+import { WithdrawalSecurityPrompt } from "./WithdrawalSecurityPrompt";
+import { withdrawalSecurityApi, WithdrawalSecurityStatus } from "../lib/withdrawal-security-api";
 
 const navItems = [
   { id: "overview", label: "Overview", icon: Home },
@@ -302,7 +304,16 @@ function TransactionsView({ finance }: { finance: FinanceSummary }) {
 }
 
 function SettingsView({ email, name, onSignOut }: { email: string; name: string; onSignOut: () => void }) {
-  return <><PageHeading title="Settings" subtitle="Manage your account preferences." /><article className="dash-panel dash-settings-card"><div className="dash-profile-large">{name.slice(0, 1).toUpperCase() || email.slice(0, 1).toUpperCase() || "U"}</div><div><span className="dash-overline">SIGNED IN AS</span><h2>{name || email}</h2><p>{email}</p></div></article><article className="dash-panel dash-full-panel dash-security-note"><ShieldCheck size={20} /><div><b>Account security</b><p>Your account uses a protected server session.</p></div></article><article className="dash-panel dash-full-panel"><div className="dash-panel-heading"><div><h2>Account access</h2><p>End your EchoVest session on this device.</p></div></div><button type="button" className="dash-signout" onClick={onSignOut}><LogOut size={18} />Sign out</button></article><a className="dash-outline-button dash-mobile-help-link" href="/dashboard?view=help">Help &amp; support <ArrowRight size={15} /></a></>;
+  const [security, setSecurity] = useState<WithdrawalSecurityStatus | null>(null);
+  const [pin, setPin] = useState("");
+  const [securityError, setSecurityError] = useState("");
+  const [securityBusy, setSecurityBusy] = useState(false);
+  useEffect(() => { withdrawalSecurityApi.status().then(setSecurity).catch((cause) => setSecurityError(cause instanceof Error ? cause.message : "Security status is unavailable.")); }, []);
+  async function saveSecurityPin(event: React.FormEvent) { event.preventDefault(); setSecurityBusy(true); setSecurityError(""); try { setSecurity(await withdrawalSecurityApi.setPin(pin)); setPin(""); } catch (cause) { setSecurityError(cause instanceof Error ? cause.message : "Could not save the PIN."); } finally { setSecurityBusy(false); } }
+  async function addDeviceVerification() { setSecurityBusy(true); setSecurityError(""); try { setSecurity(await withdrawalSecurityApi.registerPasskey()); } catch (cause) { setSecurityError(cause instanceof Error ? cause.message : "Device verification could not be enabled."); } finally { setSecurityBusy(false); } }
+  return <><PageHeading title="Settings" subtitle="Manage your account preferences." /><article className="dash-panel dash-settings-card"><div className="dash-profile-large">{name.slice(0, 1).toUpperCase() || email.slice(0, 1).toUpperCase() || "U"}</div><div><span className="dash-overline">SIGNED IN AS</span><h2>{name || email}</h2><p>{email}</p></div></article><article className="dash-panel dash-full-panel dash-security-note"><ShieldCheck size={20} /><div><b>Account security</b><p>Your account uses a protected server session.</p></div></article>
+    <article className="dash-panel dash-full-panel dash-withdraw-security-settings"><div className="dash-panel-heading"><div><h2>Withdrawal verification</h2><p>Use a PIN or device biometrics to authorize each withdrawal.</p></div></div><div className="dash-security-methods"><span><KeyRound size={16}/>PIN <b>{security?.pinEnabled ? "Enabled" : "Not set"}</b></span><span><Fingerprint size={16}/>Device verification <b>{security?.biometricEnabled ? `${security.biometricCount} device${security.biometricCount === 1 ? "" : "s"}` : "Not set"}</b></span></div><div className="dash-security-settings-actions"><form onSubmit={(event) => void saveSecurityPin(event)}><label className="dash-deposit-label" htmlFor="settings-withdrawal-pin">{security?.pinEnabled ? "Change withdrawal PIN" : "Add withdrawal PIN"}</label><div className="dash-security-pin-row"><input id="settings-withdrawal-pin" className="dash-security-pin-input" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{6}" maxLength={6} value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="6 digits" required/><button className="dash-modal-primary" type="submit" disabled={securityBusy || pin.length !== 6}>{securityBusy ? "Saving..." : security?.pinEnabled ? "Update PIN" : "Save PIN"}</button></div></form><button type="button" className="dash-security-device-button" onClick={() => void addDeviceVerification()} disabled={securityBusy}><Fingerprint size={17}/>{security?.biometricEnabled ? "Add another device" : "Enable fingerprint / Face ID"}</button></div>{securityError && <p className="dash-withdraw-inline-error" role="alert">{securityError}</p>}<small className="dash-security-privacy">Device biometrics remain on your device; EchoVest stores only the passkey public key. Use HTTPS for fingerprint or Face ID.</small></article>
+    <article className="dash-panel dash-full-panel"><div className="dash-panel-heading"><div><h2>Account access</h2><p>End your EchoVest session on this device.</p></div></div><button type="button" className="dash-signout" onClick={onSignOut}><LogOut size={18} />Sign out</button></article><a className="dash-outline-button dash-mobile-help-link" href="/dashboard?view=help">Help &amp; support <ArrowRight size={15} /></a></>;
 }
 
 function HelpView() {
@@ -319,6 +330,7 @@ export function Dashboard({ initialView = "overview" }: { initialView?: string }
   const [mobileOpen, setMobileOpen] = useState(false);
   const [active, setActive] = useState(() => normalizeView(initialView));
   const [signingOut, setSigningOut] = useState(false);
+  const [withdrawalSecurity, setWithdrawalSecurity] = useState<WithdrawalSecurityStatus | null>(null);
 
   function navigateWithinDashboard(event: ReactMouseEvent<HTMLDivElement>) {
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -345,6 +357,7 @@ export function Dashboard({ initialView = "overview" }: { initialView?: string }
       setEmail(user.email);
       setUserName(user.fullName);
       setReady(true);
+      withdrawalSecurityApi.status().then(setWithdrawalSecurity).catch(() => setWithdrawalSecurity({ pinEnabled: false, biometricEnabled: false, biometricCount: 0, configured: false }));
       financeRequest<FinanceSummary>("me").then(setFinance).catch(() => undefined);
     }).catch(() => { if (active) router.replace("/sign-in"); });
     return () => { active = false; };
@@ -364,6 +377,7 @@ export function Dashboard({ initialView = "overview" }: { initialView?: string }
   const activeContent = active === "wallet" ? <WalletView finance={finance} /> : active === "deposit" ? <DepositView /> : active === "withdraw" ? <WithdrawalView /> : active === "notifications" ? <NotificationsPage /> : active === "trading" ? <TradingView balance={finance.balances.availableTrading} onBalanceUpdated={refreshFinance} /> : active === "referrals" ? <ReferralsView balance={finance.balances.referral} /> : active === "levels" ? <LevelsView /> : active === "transactions" ? <TransactionsView finance={finance} /> : active === "settings" ? <SettingsView email={email} name={userName} onSignOut={signOut} /> : active === "help" ? <HelpView /> : <Overview email={email} name={userName} finance={finance} onBalanceUpdated={refreshFinance} />;
   const initials = userName ? userName.slice(0, 1).toUpperCase() : email ? email.slice(0, 1).toUpperCase() : "U";
   return <NotificationProvider><div className="dash-app" onClick={navigateWithinDashboard}>
+    {withdrawalSecurity && !withdrawalSecurity.configured && <WithdrawalSecurityPrompt onComplete={setWithdrawalSecurity} />}
     {signingOut && <AppPreloader label="Signing out..." />}
     <aside className="dash-sidebar"><Brand /><NavLinks active={active} /><div className="dash-sidebar-bottom"><div className="dash-help-card"><span><ShieldCheck size={17} /></span><b>Your account, protected</b><small>Security features are coming soon.</small></div><button type="button" className="dash-signout" onClick={signOut}><LogOut size={18} />Sign out</button></div></aside>
     {mobileOpen && <div className="dash-mobile-backdrop" onClick={() => setMobileOpen(false)} />}

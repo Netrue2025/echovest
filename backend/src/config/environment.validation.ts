@@ -10,6 +10,14 @@ export function validateEnvironment(config: Record<string, unknown>) {
   const sameSite = config.SESSION_SAME_SITE;
   if (sameSite !== undefined && (typeof sameSite !== 'string' || !['lax', 'strict', 'none'].includes(sameSite))) throw new Error('SESSION_SAME_SITE must be lax, strict, or none.');
 
+  if (config.WEBAUTHN_RP_ID !== undefined && String(config.WEBAUTHN_RP_ID).trim()) {
+    const rpId = String(config.WEBAUTHN_RP_ID).trim().toLowerCase();
+    const origins = String(config.FRONTEND_URL).split(',').map((value) => value.trim()).filter(Boolean).map((value) => { try { return new URL(value); } catch { throw new Error('FRONTEND_URL must contain valid origins when configuring WEBAUTHN_RP_ID.'); } });
+    if (!/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(rpId) || !origins.some((origin) => origin.hostname.toLowerCase() === rpId) || (config.NODE_ENV === 'production' && origins.some((origin) => origin.hostname.toLowerCase() === rpId && origin.protocol !== 'https:'))) {
+      throw new Error('WEBAUTHN_RP_ID must exactly match an HTTPS frontend hostname in production (or an allowed local frontend origin in development).');
+    }
+  }
+
   const mode = config.DEPOSIT_PROVIDER_MODE;
   if (mode !== undefined && !['disabled', 'mock', 'chainpay'].includes(String(mode))) throw new Error('DEPOSIT_PROVIDER_MODE must be disabled, mock, or chainpay.');
   const liveValue = config.CHAINPAY_LIVE_DEPOSITS_ENABLED;

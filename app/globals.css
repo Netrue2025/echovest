@@ -134,6 +134,33 @@ body{overflow-x:hidden}@media(max-width:900px){.grid-lines>.container{grid-templ
 .dash-modal-card>footer button{min-height:44px;flex:1;border-radius:10px;font-size:12px;font-weight:750}
 .dash-modal-secondary{border:1px solid #E2E5E7;background:#fff;color:#555F67}
 .dash-modal-primary{border:0;background:#F0B90B;color:#20262C}
+.dash-withdraw-security-card{width:min(100%,470px)}
+.dash-security-biometric{display:flex;align-items:center;gap:12px;width:100%;min-height:66px;margin:18px 0 12px;padding:12px 14px;border:1px solid #E8D58F;border-radius:13px;background:linear-gradient(135deg,#FFF9E7,#fff);color:#252A2F;text-align:left}
+.dash-security-biometric>svg:first-child{flex:0 0 auto;color:#A17A00}
+.dash-security-biometric span{display:grid;gap:3px;flex:1;min-width:0}
+.dash-security-biometric strong{font-size:14px;font-weight:750}
+.dash-security-biometric small{color:#717A81;font-size:12px}
+.dash-security-biometric:disabled{opacity:.6}
+.dash-security-divider{display:flex;align-items:center;gap:10px;margin:12px 0;color:#92999E;font-size:11px}
+.dash-security-divider:before,.dash-security-divider:after{content:"";height:1px;flex:1;background:#E9EBED}
+.dash-security-pin-input{display:block;width:100%;height:48px;margin:7px 0 12px;padding:0 13px;border:1px solid #DDE1E4;border-radius:11px;background:#fff;color:#252A2F;font-size:16px;letter-spacing:.24em;outline:0}
+.dash-security-pin-input:focus{border-color:#D2A400;outline:3px solid #F0B90B22}
+.dash-security-save{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:47px;border:0;border-radius:11px;background:#F0B90B;color:#20262C;font-size:14px;font-weight:750}
+.dash-security-save:disabled{opacity:.55}
+.dash-security-privacy{margin:13px 0 0!important;color:#7C858B!important;font-size:11px!important;line-height:1.5}
+.dash-withdraw-verify-card footer{margin-top:12px}
+.dash-security-required{z-index:1200}
+.dash-security-methods{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}
+.dash-security-methods>span{display:flex;align-items:center;gap:7px;padding:9px 11px;border:1px solid #E8EAEC;border-radius:10px;color:#606A71;font-size:12px}
+.dash-security-methods svg{color:#A17A00}
+.dash-security-methods b{color:#287450;font-weight:700}
+.dash-security-settings-actions{display:grid;gap:12px}
+.dash-security-pin-row{display:flex;align-items:center;gap:8px}
+.dash-security-pin-row .dash-security-pin-input{max-width:190px;margin-bottom:0}
+.dash-security-pin-row button{min-height:46px;padding:0 13px;border-radius:10px;font-size:12px;font-weight:700}
+.dash-security-device-button{display:flex;align-items:center;justify-content:center;gap:8px;min-height:43px;padding:0 13px;border:1px solid #E8D58F;border-radius:10px;background:#FFFAEA;color:#765A00;font-size:12px;font-weight:700}
+.dash-security-device-button:disabled{opacity:.6}
+.dash-withdraw-security-settings>.dash-security-privacy{display:block;margin-top:12px!important}
 @media(max-width:800px){
   .dash-modal-layer{inset:0;width:auto;height:auto;min-width:0;overflow-y:auto;}
   .dash-modal-card{min-width:0;}

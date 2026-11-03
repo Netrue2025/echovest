@@ -9,6 +9,8 @@ export class WithdrawalRequestDto {
   @IsIn(['trading', 'referral']) balanceType!: 'trading' | 'referral';
   @IsString() @MinLength(8) @MaxLength(256) destinationAddress!: string;
   @IsString() @MinLength(1) @MaxLength(80) network!: string;
+  @IsOptional() @IsString() @Matches(/^\d{6}$/) pin?: string;
+  @IsOptional() @IsString() @MaxLength(256) verificationToken?: string;
 }
 export class FinanceSettingsDto {
   @IsString() @MaxLength(256) depositWalletAddress!: string;

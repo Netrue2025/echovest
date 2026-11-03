@@ -13,6 +13,7 @@ import { UsersModule } from '../users/users.module.js';
 import { TradesController } from './trades.controller.js';
 import { CopyTradeSignal, CopyTradeSignalSchema, TradePosition, TradePositionSchema } from './trade.schema.js';
 import { TradesService } from './trades.service.js';
+import { WithdrawalSecurityModule } from '../withdrawal-security/withdrawal-security.module.js';
 
 @Module({
   imports: [MongooseModule.forFeature([
@@ -22,7 +23,7 @@ import { TradesService } from './trades.service.js';
     { name: FinanceTransaction.name, schema: FinanceTransactionSchema },
     { name: FinanceSettings.name, schema: FinanceSettingsSchema },
     { name: AdminAudit.name, schema: AdminAuditSchema },
-  ]), UsersModule, SessionsModule, NotificationsModule, ReferralsModule],
+  ]), UsersModule, SessionsModule, NotificationsModule, ReferralsModule, WithdrawalSecurityModule],
   controllers: [TradesController],
   providers: [TradesService, SessionGuard, AdminAccessGuard, OriginGuard],
 })

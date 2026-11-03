@@ -9,6 +9,7 @@ import { ReferralsService } from '../referrals/referrals.service.js';
 import { User } from '../users/user.schema.js';
 import { CreateTradeSignalDto } from './trade.dto.js';
 import { CopyTradeSignal, TradePosition } from './trade.schema.js';
+import { WithdrawalSecurityService } from '../withdrawal-security/withdrawal-security.service.js';
 
 type Actor = { id: string; email: string };
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -39,6 +40,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
     @InjectModel(AdminAudit.name) private readonly audit: Model<AdminAudit>,
     private readonly notifications: NotificationsService,
     private readonly referrals: ReferralsService,
+    private readonly withdrawalSecurity: WithdrawalSecurityService,
   ) {}
 
   onModuleInit() {
@@ -198,8 +200,9 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
     return this.serializePosition(position, signal);
   }
 
-  async withdrawInterest(userId: string, positionId: string, amount: number, destinationAddress: string, network: string) {
+  async withdrawInterest(userId: string, positionId: string, amount: number, destinationAddress: string, network: string, verification: { pin?: string; verificationToken?: string }) {
     if (!Types.ObjectId.isValid(positionId)) throw new NotFoundException('Copy trade participation not found.');
+    await this.withdrawalSecurity.assertWithdrawal(userId, verification, { amount, destinationAddress, network, source: `interest:${positionId}` });
     const session = await this.positions.db.startSession();
     let createdTransaction: FinanceTransaction | null = null;
     let referralPayouts: Array<{ userId: string; amount: number; tier: number }> = [];
@@ -233,7 +236,8 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
     return { transaction: createdTransaction, message: 'Interest withdrawal request submitted for admin review.' };
   }
 
-  async withdrawProfit(userId: string, amount: number, destinationAddress: string, network: string) {
+  async withdrawProfit(userId: string, amount: number, destinationAddress: string, network: string, verification: { pin?: string; verificationToken?: string }) {
+    await this.withdrawalSecurity.assertWithdrawal(userId, verification, { amount, destinationAddress, network, source: 'profit' });
     const session = await this.positions.db.startSession();
     let createdTransaction: FinanceTransaction | null = null;
     let referralPayouts: Array<{ userId: string; amount: number; tier: number }> = [];

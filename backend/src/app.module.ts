@@ -16,6 +16,7 @@ import { TradesModule } from './trades/trades.module.js';
 import { WalletModule } from './wallet/wallet.module.js';
 import { WebhooksModule } from './webhooks/webhooks.module.js';
 import { SupportModule } from './support/support.module.js';
+import { WithdrawalSecurityModule } from './withdrawal-security/withdrawal-security.module.js';
 import { validateEnvironment } from './config/environment.validation.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -37,6 +38,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     WalletModule,
     WebhooksModule,
     SupportModule,
+    WithdrawalSecurityModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: RateLimitGuard }],
 })
