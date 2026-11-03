@@ -6,7 +6,7 @@ import { SessionGuard } from '../auth/session.guard.js';
 import { AdminAccessGuard, RequireAdminPermissions } from '../admin/admin-access.guard.js';
 import { DepositReviewDto } from './deposit-review.dto.js';
 import { DepositsService } from './deposits.service.js';
-import { ArchiveHistoryDto } from '../finance/finance.dto.js';
+import { ArchiveHistoryDto, ArchiveSelectedHistoryDto } from '../finance/finance.dto.js';
 
 @Controller('admin/deposit-events')
 @UseGuards(SessionGuard, AdminAccessGuard)
@@ -26,6 +26,11 @@ export class DepositsController {
   @Post('history/:id/restore') @UseGuards(OriginGuard)
   restoreHistory(@Param('id') id: string, @Req() request: Request & { user?: User }) {
     return this.deposits.restoreHistoryRecord(id, { id: String(request.user!._id), email: request.user!.email });
+  }
+
+  @Post('history/archive-selected') @UseGuards(OriginGuard)
+  archiveSelectedHistory(@Body() body: ArchiveSelectedHistoryDto, @Req() request: Request & { user?: User }) {
+    return this.deposits.archiveSelectedHistoryRecords(body.ids, body.reason, { id: String(request.user!._id), email: request.user!.email });
   }
 
   @Post('history/archive-all') @UseGuards(OriginGuard)

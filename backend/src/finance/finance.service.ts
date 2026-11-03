@@ -105,9 +105,8 @@ export class FinanceService {
     if (settings?.depositMethod !== 'manual') throw new ForbiddenException('Manual deposits are currently unavailable.');
     if (!settings.depositWalletAddress.trim() || !settings.depositNetwork.trim()) throw new ForbiddenException('The manual deposit wallet is not configured yet.');
     if (amount < (settings.minimumDeposit ?? 0)) throw new BadRequestException(`The minimum deposit is ${settings.minimumDeposit} USDT.`);
-    if (!txid?.trim()) throw new BadRequestException('Enter the transaction hash after sending your deposit.');
     try {
-      return await this.transactions.create({ userId: new Types.ObjectId(userId), type: 'deposit', amount, balanceType: 'trading', status: 'pending_review', txid: txid.trim(), destinationAddress: settings.depositWalletAddress.trim(), network: settings.depositNetwork.trim() });
+      return await this.transactions.create({ userId: new Types.ObjectId(userId), type: 'deposit', amount, balanceType: 'trading', status: 'pending_review', ...(txid?.trim() ? { txid: txid.trim() } : {}), destinationAddress: settings.depositWalletAddress.trim(), network: settings.depositNetwork.trim() });
     } catch (error) {
       if (typeof error === 'object' && error && 'code' in error && error.code === 11000) throw new ConflictException('This transaction hash has already been submitted.');
       throw error;
@@ -190,6 +189,19 @@ export class FinanceService {
         ).exec();
         count = result.modifiedCount;
         if (count) await this.audit.create([{ actorId: actor.id, actorEmail: actor.email, action: `finance.${type}.history_cleared`, targetType: 'transaction_history', targetId: type, targetLabel: `${type} history`, detail: `${count} approved/rejected record(s) hidden from normal history views. ${reason.trim()}` }], { session });
+      });
+    } finally { await session.endSession(); }
+    return { type, archivedCount: count };
+  }
+  async archiveSelectedTransactions(type: 'deposit' | 'withdrawal', ids: string[], reason: string, actor: Actor) {
+    const objectIds = ids.map((id) => new Types.ObjectId(id));
+    const session = await this.transactions.db.startSession();
+    let count = 0;
+    try {
+      await session.withTransaction(async () => {
+        const result = await this.transactions.updateMany({ _id: { $in: objectIds }, type, status: { $in: ['approved', 'rejected'] }, archivedAt: { $exists: false } }, { $set: { archivedAt: new Date(), archivedBy: actor.email, archiveReason: reason.trim() } }, { session }).exec();
+        count = result.modifiedCount;
+        if (count) await this.audit.create([{ actorId: actor.id, actorEmail: actor.email, action: `finance.${type}.history_selected_archived`, targetType: 'transaction_history', targetId: type, targetLabel: `${type} history`, detail: `${count} selected approved/rejected record(s) hidden. ${reason.trim()}` }], { session });
       });
     } finally { await session.endSession(); }
     return { type, archivedCount: count };

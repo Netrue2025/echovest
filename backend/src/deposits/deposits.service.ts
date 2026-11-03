@@ -272,6 +272,24 @@ export class DepositsService implements OnModuleInit, OnModuleDestroy {
     return { id, archived: true };
   }
 
+  async archiveSelectedHistoryRecords(ids: string[], reason: string, actor: AdminActor) {
+    const objectIds = ids.map((id) => new Types.ObjectId(id));
+    const session = await this.events.db.startSession();
+    let count = 0;
+    try {
+      await session.withTransaction(async () => {
+        const result = await this.events.updateMany(
+          { _id: { $in: objectIds }, status: { $in: ['credited', 'rejected'] }, archivedAt: { $exists: false } },
+          { $set: { archivedAt: new Date(), archivedBy: actor.id, archiveReason: reason.trim() } },
+          { session },
+        ).exec();
+        count = result.modifiedCount;
+        if (count) await this.audit.create([{ actorId: actor.id, actorEmail: actor.email, action: 'deposit.history_selected_archived', targetType: 'provider_deposit_history', targetId: 'selected', targetLabel: 'Selected deposit history', detail: `${count} credited/rejected deposit record(s) hidden from normal history views. ${reason.trim()}` }], { session });
+      });
+    } finally { await session.endSession(); }
+    return { archivedCount: count };
+  }
+
   async restoreHistoryRecord(id: string, actor: AdminActor) {
     const session = await this.events.db.startSession();
     let changed = false;

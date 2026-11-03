@@ -1,4 +1,4 @@
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsMongoId, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 export class DepositRequestDto {
   @IsNumber({ maxDecimalPlaces: 8 }) @Min(0.01) amount!: number;
@@ -31,4 +31,7 @@ export class ReviewFinanceDto {
 }
 export class ArchiveHistoryDto {
   @IsString() @MinLength(3) @MaxLength(500) reason!: string;
+}
+export class ArchiveSelectedHistoryDto extends ArchiveHistoryDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(200) @IsMongoId({ each: true }) ids!: string[];
 }

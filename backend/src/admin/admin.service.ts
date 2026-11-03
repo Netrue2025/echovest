@@ -62,10 +62,10 @@ export class AdminService implements OnModuleInit {
       this.userModel.countDocuments({ role: 'user' }).exec(),
       this.userModel.countDocuments({ role: 'user', referredBy: { $ne: null } }).exec(),
       this.userModel.aggregate([{ $match: { role: 'user' } }, { $group: { _id: null, trading: { $sum: '$tradingBalance' }, referral: { $sum: '$referralBalance' } } }]).exec(),
-      this.transactions.aggregate([{ $match: { status: 'approved', createdAt: { $gte: start } } }, { $group: { _id: { type: '$type' }, total: { $sum: '$amount' } } }]).exec(),
-      this.providerDeposits.aggregate([{ $match: { status: 'credited', creditedAt: { $gte: start } } }, { $group: { _id: null, total: { $sum: { $toDouble: '$amount' } } } }]).exec(),
-      this.transactions.aggregate([{ $match: { status: 'approved', createdAt: { $gte: start } } }, { $group: { _id: { day: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, type: '$type' }, total: { $sum: '$amount' } } }]).exec(),
-      this.providerDeposits.aggregate([{ $match: { status: 'credited', creditedAt: { $gte: start } } }, { $group: { _id: { day: { $dateToString: { format: '%Y-%m-%d', date: '$creditedAt' } } }, total: { $sum: { $toDouble: '$amount' } } } }]).exec(),
+      this.transactions.aggregate([{ $match: { status: 'approved', archivedAt: { $exists: false }, createdAt: { $gte: start } } }, { $group: { _id: { type: '$type' }, total: { $sum: '$amount' } } }]).exec(),
+      this.providerDeposits.aggregate([{ $match: { status: 'credited', archivedAt: { $exists: false }, creditedAt: { $gte: start } } }, { $group: { _id: null, total: { $sum: { $toDouble: '$amount' } } } }]).exec(),
+      this.transactions.aggregate([{ $match: { status: 'approved', archivedAt: { $exists: false }, createdAt: { $gte: start } } }, { $group: { _id: { day: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, type: '$type' }, total: { $sum: '$amount' } } }]).exec(),
+      this.providerDeposits.aggregate([{ $match: { status: 'credited', archivedAt: { $exists: false }, creditedAt: { $gte: start } } }, { $group: { _id: { day: { $dateToString: { format: '%Y-%m-%d', date: '$creditedAt' } } }, total: { $sum: { $toDouble: '$amount' } } } }]).exec(),
     ]);
     const daily = new Map<string, { date: string; deposits: number; withdrawals: number }>();
     for (let i = 0; i < days; i++) { const day = new Date(start); day.setUTCDate(start.getUTCDate() + i); const key = day.toISOString().slice(0, 10); daily.set(key, { date: key, deposits: 0, withdrawals: 0 }); }

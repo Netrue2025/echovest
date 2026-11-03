@@ -244,7 +244,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
     } finally { await session.endSession(); }
     if (createdTransaction) await this.notifications.notifyUser(userId, 'Trade interest withdrawal requested', `${amount} USD accrued interest has been submitted for review.`, 'withdrawal').catch((error) => this.logger.warn(`Interest request notification failed: ${error instanceof Error ? error.message : 'unknown error'}`));
     for (const payout of referralPayouts) await this.notifications.notifyUser(payout.userId, 'Referral trading commission credited', `You earned ${payout.amount} USD from a tier ${payout.tier} referral’s copy-trade interest.`, 'general').catch((error) => this.logger.warn(`Referral trade commission notification failed: ${error instanceof Error ? error.message : 'unknown error'}`));
-    return { transaction: createdTransaction, message: 'Interest withdrawal request submitted for admin review.' };
+    return { transaction: createdTransaction, message: 'Interest withdrawal request submitted for review.' };
   }
 
   async withdrawProfit(userId: string, amount: number, destinationAddress: string, network: string, verification: { pin?: string; verificationToken?: string }) {
@@ -292,9 +292,9 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
         await this.writeAudit(userId, 'system', 'trades.profit.withdrawal_requested', String(createdTransaction._id), 'Total profit earned', `${amount} USD profit withdrawal submitted across ${allocations.length} closed trade position(s); pending admin review.`, session);
       });
     } finally { await session.endSession(); }
-    if (createdTransaction) await this.notifications.notifyUser(userId, 'Profit withdrawal requested', `${amount} USD profit has been submitted for admin review.`, 'withdrawal').catch((error) => this.logger.warn(`Profit withdrawal notification failed: ${error instanceof Error ? error.message : 'unknown error'}`));
+    if (createdTransaction) await this.notifications.notifyUser(userId, 'Profit withdrawal requested', `${amount} USD profit has been submitted for review.`, 'withdrawal').catch((error) => this.logger.warn(`Profit withdrawal notification failed: ${error instanceof Error ? error.message : 'unknown error'}`));
     for (const payout of referralPayouts) await this.notifications.notifyUser(payout.userId, 'Referral trading commission credited', `You earned ${payout.amount} USD from a tier ${payout.tier} referral's copy-trade profit.`, 'general').catch((error) => this.logger.warn(`Referral trade commission notification failed: ${error instanceof Error ? error.message : 'unknown error'}`));
-    return { transaction: createdTransaction, message: 'Profit withdrawal request submitted for admin review.' };
+    return { transaction: createdTransaction, message: 'Profit withdrawal request submitted for review.' };
   }
 
   async settleMatured(userId?: string) {
