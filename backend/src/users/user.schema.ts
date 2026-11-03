@@ -14,6 +14,11 @@ export class User {
   @Prop({ select: false, default: 0 }) withdrawalPinFailedAttempts!: number;
   @Prop({ type: Date, select: false, default: null }) withdrawalPinLockedUntil?: Date | null;
   @Prop({ type: [{ credentialId: { type: String, required: true }, publicKey: { type: Buffer, required: true }, counter: { type: Number, required: true, default: 0 }, transports: { type: [String], default: [] }, deviceType: { type: String }, backedUp: { type: Boolean, default: false }, name: { type: String } }], select: false, default: [] }) withdrawalPasskeys!: Array<Record<string, unknown>>;
+  @Prop({ type: String, select: false }) withdrawalPasskeyChallenge?: string;
+  @Prop({ type: String, select: false }) withdrawalPasskeyChallengeId?: string;
+  @Prop({ type: String, select: false, enum: ['registration', 'authentication'] }) withdrawalPasskeyChallengePurpose?: string;
+  @Prop({ type: String, select: false }) withdrawalPasskeyChallengeContextHash?: string;
+  @Prop({ type: Date, select: false }) withdrawalPasskeyChallengeExpiresAt?: Date;
   @Prop({ unique: true, sparse: true, uppercase: true, trim: true, index: true }) referralCode?: string;
   @Prop({ type: Types.ObjectId, ref: User.name, default: null, index: true }) referredBy?: Types.ObjectId | null;
   @Prop({ enum: ['Blue', 'Elite', 'Silver', 'Gold', 'Platinum'], default: 'Blue' }) membershipLevel!: string;

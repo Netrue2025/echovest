@@ -6,8 +6,8 @@ import { SessionsModule } from '../sessions/sessions.module.js';
 import { User, UserSchema } from '../users/user.schema.js';
 import { UsersModule } from '../users/users.module.js';
 import { WithdrawalSecurityController } from './withdrawal-security.controller.js';
-import { WithdrawalSecurityChallenge, WithdrawalSecurityChallengeSchema, WithdrawalSecurityProof, WithdrawalSecurityProofSchema } from './withdrawal-security.schema.js';
+import { WithdrawalSecurityProof, WithdrawalSecurityProofSchema } from './withdrawal-security.schema.js';
 import { WithdrawalSecurityService } from './withdrawal-security.service.js';
 
-@Module({ imports: [MongooseModule.forFeature([{ name: User.name, schema: UserSchema }, { name: WithdrawalSecurityChallenge.name, schema: WithdrawalSecurityChallengeSchema }, { name: WithdrawalSecurityProof.name, schema: WithdrawalSecurityProofSchema }]), UsersModule, SessionsModule], controllers: [WithdrawalSecurityController], providers: [WithdrawalSecurityService, SessionGuard, OriginGuard], exports: [WithdrawalSecurityService] })
+@Module({ imports: [MongooseModule.forFeature([{ name: User.name, schema: UserSchema }, { name: WithdrawalSecurityProof.name, schema: WithdrawalSecurityProofSchema }]), UsersModule, SessionsModule], controllers: [WithdrawalSecurityController], providers: [WithdrawalSecurityService, SessionGuard, OriginGuard], exports: [WithdrawalSecurityService] })
 export class WithdrawalSecurityModule {}

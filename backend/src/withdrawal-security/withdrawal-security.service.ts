@@ -6,7 +6,7 @@ import { generateAuthenticationOptions, generateRegistrationOptions, verifyAuthe
 import type { AuthenticationResponseJSON, RegistrationResponseJSON, WebAuthnCredential } from '@simplewebauthn/server';
 import { ClientSession, Model, Types } from 'mongoose';
 import { User } from '../users/user.schema.js';
-import { WithdrawalSecurityChallenge, WithdrawalSecurityProof } from './withdrawal-security.schema.js';
+import { WithdrawalSecurityProof } from './withdrawal-security.schema.js';
 
 export type WithdrawalContext = { amount: number; destinationAddress: string; network: string; source: string };
 const contextHash = (context: WithdrawalContext) => createHash('sha256').update(JSON.stringify({ amount: Number(context.amount.toFixed(8)), destinationAddress: context.destinationAddress.trim(), network: context.network.trim().toLowerCase(), source: context.source.trim() })).digest('hex');
@@ -14,7 +14,19 @@ const b64url = (value: string) => Buffer.from(value, 'base64url');
 
 @Injectable()
 export class WithdrawalSecurityService {
-  constructor(@InjectModel(User.name) private readonly users: Model<User>, @InjectModel(WithdrawalSecurityChallenge.name) private readonly challenges: Model<WithdrawalSecurityChallenge>, @InjectModel(WithdrawalSecurityProof.name) private readonly proofs: Model<WithdrawalSecurityProof>) {}
+  constructor(@InjectModel(User.name) private readonly users: Model<User>, @InjectModel(WithdrawalSecurityProof.name) private readonly proofs: Model<WithdrawalSecurityProof>) {}
+
+  private async saveChallenge(userId: string, purpose: 'registration' | 'authentication', challenge: string, hash: string) {
+    const challengeId = randomBytes(24).toString('base64url');
+    const stored = await this.users.updateOne({ _id: userId }, { $set: { withdrawalPasskeyChallenge: challenge, withdrawalPasskeyChallengeId: challengeId, withdrawalPasskeyChallengePurpose: purpose, withdrawalPasskeyChallengeContextHash: hash, withdrawalPasskeyChallengeExpiresAt: new Date(Date.now() + 10 * 60_000) } }).exec();
+    if (!stored.matchedCount) throw new UnauthorizedException('Sign in to continue.');
+    return challengeId;
+  }
+
+  private async consumeChallenge(userId: string, challengeId: string, purpose: 'registration' | 'authentication', hash: string) {
+    const user = await this.users.findOneAndUpdate({ _id: userId, withdrawalPasskeyChallengeId: challengeId, withdrawalPasskeyChallengePurpose: purpose, withdrawalPasskeyChallengeContextHash: hash, withdrawalPasskeyChallengeExpiresAt: { $gt: new Date() } }, { $unset: { withdrawalPasskeyChallenge: 1, withdrawalPasskeyChallengeId: 1, withdrawalPasskeyChallengePurpose: 1, withdrawalPasskeyChallengeContextHash: 1, withdrawalPasskeyChallengeExpiresAt: 1 } }, { new: false }).select('+withdrawalPasskeyChallenge +withdrawalPasskeyChallengeExpiresAt').exec();
+    return user?.withdrawalPasskeyChallenge ?? null;
+  }
 
   async status(userId: string) {
     const user = await this.users.findById(userId).select('+withdrawalPinHash +withdrawalPasskeys').lean().exec();
@@ -41,17 +53,16 @@ export class WithdrawalSecurityService {
     if (!user) throw new UnauthorizedException('Sign in to continue.');
     const { rpID, rpName } = this.relyingParty();
     const options = await generateRegistrationOptions({ rpName, rpID, userID: new TextEncoder().encode(userId), userName: user.email, userDisplayName: user.fullName, attestationType: 'none', authenticatorSelection: { authenticatorAttachment: 'platform', residentKey: 'preferred', userVerification: 'required' }, excludeCredentials: (user.withdrawalPasskeys ?? []).map((key: any) => ({ id: key.credentialId, transports: key.transports })) });
-    const stored = await this.challenges.findOneAndUpdate({ userId: new Types.ObjectId(userId), purpose: 'registration' }, { $set: { challenge: options.challenge, contextHash: 'registration', expiresAt: new Date(Date.now() + 5 * 60_000) } }, { upsert: true, new: true }).exec();
-    if (!stored) throw new ConflictException('Could not start passkey setup. Please try again.');
-    return { options, challengeId: String(stored._id) };
+    const challengeId = await this.saveChallenge(userId, 'registration', options.challenge, 'registration');
+    return { options, challengeId };
   }
 
   async verifyRegistration(userId: string, response: RegistrationResponseJSON, name?: string, challengeId?: string) {
     if (!challengeId || !Types.ObjectId.isValid(challengeId)) throw new ConflictException('Passkey setup expired. Start setup again.');
-    const challenge = await this.challenges.findOneAndDelete({ _id: challengeId, userId, purpose: 'registration', expiresAt: { $gt: new Date() } }).exec();
-    if (!challenge) throw new ConflictException('Passkey setup expired. Try again.');
+    const challenge = await this.consumeChallenge(userId, challengeId, 'registration', 'registration');
+    if (!challenge) throw new ConflictException('Passkey setup expired. Start setup again.');
     const { rpID, origins } = this.relyingParty();
-    const result = await verifyRegistrationResponse({ response, expectedChallenge: challenge.challenge, expectedOrigin: origins, expectedRPID: rpID, requireUserVerification: true });
+    const result = await verifyRegistrationResponse({ response, expectedChallenge: challenge, expectedOrigin: origins, expectedRPID: rpID, requireUserVerification: true });
     if (!result.verified || !result.registrationInfo) throw new UnauthorizedException('Could not verify this device passkey.');
     const info = result.registrationInfo;
     const credential = info.credential;
@@ -65,21 +76,20 @@ export class WithdrawalSecurityService {
     if (!user?.withdrawalPasskeys?.length) throw new BadRequestException('Set up device verification or a withdrawal PIN first.');
     const { rpID } = this.relyingParty();
     const options = await generateAuthenticationOptions({ rpID, allowCredentials: (user.withdrawalPasskeys as any[]).map((key) => ({ id: key.credentialId, transports: key.transports })), userVerification: 'required' });
-    const stored = await this.challenges.findOneAndUpdate({ userId: new Types.ObjectId(userId), purpose: 'authentication' }, { $set: { challenge: options.challenge, contextHash: contextHash(context), expiresAt: new Date(Date.now() + 5 * 60_000) } }, { upsert: true, new: true }).exec();
-    if (!stored) throw new ConflictException('Could not start device verification. Please try again.');
-    return { options, challengeId: String(stored._id) };
+    const challengeId = await this.saveChallenge(userId, 'authentication', options.challenge, contextHash(context));
+    return { options, challengeId };
   }
 
   async verifyAuthentication(userId: string, response: AuthenticationResponseJSON, context: WithdrawalContext, challengeId?: string) {
     if (!challengeId || !Types.ObjectId.isValid(challengeId)) throw new ConflictException('Device verification expired. Start again.');
-    const challenge = await this.challenges.findOneAndDelete({ _id: challengeId, userId, purpose: 'authentication', contextHash: contextHash(context), expiresAt: { $gt: new Date() } }).exec();
+    const challenge = await this.consumeChallenge(userId, challengeId, 'authentication', contextHash(context));
     if (!challenge) throw new ConflictException('Verification expired or withdrawal details changed. Try again.');
     const user = await this.users.findById(userId).select('+withdrawalPasskeys').exec();
     const record: any = user?.withdrawalPasskeys?.find((key: any) => key.credentialId === response.id);
     if (!record) throw new UnauthorizedException('This device is not registered for withdrawals.');
     const { rpID, origins } = this.relyingParty();
     const credential: WebAuthnCredential = { id: record.credentialId, publicKey: new Uint8Array(record.publicKey), counter: record.counter, transports: record.transports };
-    const result = await verifyAuthenticationResponse({ response, expectedChallenge: challenge.challenge, expectedOrigin: origins, expectedRPID: rpID, credential, requireUserVerification: true });
+    const result = await verifyAuthenticationResponse({ response, expectedChallenge: challenge, expectedOrigin: origins, expectedRPID: rpID, credential, requireUserVerification: true });
     if (!result.verified) throw new UnauthorizedException('Device verification failed.');
     const updated = await this.users.updateOne({ _id: userId, 'withdrawalPasskeys.credentialId': record.credentialId, 'withdrawalPasskeys.counter': record.counter }, { $set: { 'withdrawalPasskeys.$.counter': result.authenticationInfo.newCounter } }).exec();
     if (!updated.matchedCount) throw new ConflictException('Device verification was already used. Try again.');
