@@ -41,6 +41,12 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET" || url.origin !== self.location.origin) return;
 
   if (request.mode === "navigate") {
+    if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
+      // Keep admin pages network-only so private console data is never cached,
+      // while still letting the service worker handle admin app navigation.
+      event.respondWith(fetch(request));
+      return;
+    }
     if (url.pathname !== "/pwa") return;
     event.respondWith(fetch(request).then((response) => {
       if (response.ok) {

@@ -81,29 +81,22 @@ const sectionPlaceholder: Record<string, string> = {
 
 type BeforeInstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
 
-function AdminInstallButton() {
-  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+function AdminInstallButton({ installPrompt, onInstalled }: { installPrompt: BeforeInstallPromptEvent | null; onInstalled: () => void }) {
   const [showHelp, setShowHelp] = useState(false);
   const [installed, setInstalled] = useState(false);
   useEffect(() => {
-    const onInstallPrompt = (event: Event) => { event.preventDefault(); setInstallPrompt(event as BeforeInstallPromptEvent); };
-    const onInstalled = () => { setInstalled(true); setInstallPrompt(null); setShowHelp(false); };
-    window.addEventListener("beforeinstallprompt", onInstallPrompt);
-    window.addEventListener("appinstalled", onInstalled);
     if (window.matchMedia("(display-mode: standalone)").matches) setInstalled(true);
-    return () => { window.removeEventListener("beforeinstallprompt", onInstallPrompt); window.removeEventListener("appinstalled", onInstalled); };
   }, []);
   async function install() {
     if (!installPrompt) { setShowHelp((visible) => !visible); return; }
     await installPrompt.prompt();
     const result = await installPrompt.userChoice;
-    if (result.outcome === "accepted") setInstalled(true);
-    setInstallPrompt(null);
+    if (result.outcome === "accepted") { setInstalled(true); onInstalled(); }
   }
-  return <div className="admin-install-control"><button type="button" className="admin-outline-button" onClick={() => void install()} disabled={installed}><Download size={14}/>{installed ? "Admin app installed" : "Install admin app"}</button>{showHelp && <small>Android or desktop: use your browser menu and choose “Install app” or “Add to home screen”. iPhone/iPad: in Safari, tap Share, then “Add to Home Screen”.</small>}</div>;
+  return <div className="admin-install-control"><button type="button" className="admin-outline-button" onClick={() => void install()} disabled={installed}><Download size={14}/>{installed ? "Admin app installed" : "Install admin app"}</button>{showHelp && <small>{installPrompt ? "Choose Install in the browser prompt to add EchoVest Admin to this device." : "This browser has not offered direct installation yet. On Android or desktop Chrome, open the browser menu and choose Install app. On iPhone/iPad, open this page in Safari, tap Share, then Add to Home Screen."}</small>}</div>;
 }
 
-function LoginForm({ onLogin }: { onLogin: (actor: AdminActor) => void }) {
+function LoginForm({ onLogin, installPrompt, onInstalled }: { onLogin: (actor: AdminActor) => void; installPrompt: BeforeInstallPromptEvent | null; onInstalled: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -118,7 +111,7 @@ function LoginForm({ onLogin }: { onLogin: (actor: AdminActor) => void }) {
   }
   return <main className="admin-login-shell"><form className="admin-login-card" onSubmit={submit}>
     <div className="admin-login-mark"><ShieldCheck size={25} /></div><p className="admin-login-kicker">ECHOVEST ADMIN</p><h1>Admin sign in</h1><p className="admin-login-copy">Sign in with your administrator account to access the management console.</p>
-    <AdminInstallButton />
+    <AdminInstallButton installPrompt={installPrompt} onInstalled={onInstalled} />
     <label>Email<input name="email" type="email" autoComplete="username" placeholder="Admin email" required /></label><label>Password<input name="password" type="password" autoComplete="current-password" placeholder="Admin password" required /></label>
     {error && <p className="admin-action-notice error" role="alert">{error}</p>}<button className="admin-primary-button" type="submit" disabled={busy}><LockKeyhole size={15} />{busy ? "Signing in…" : "Sign in securely"}</button>
   </form></main>;
@@ -135,6 +128,7 @@ function FinanceTable({ title, items, busy, archivedView, onReview, onArchive, o
 export function AdminDashboard() {
   const [actor, setActor] = useState<AdminActor | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [section, setSection] = useState("overview");
   const [expandedNavGroup, setExpandedNavGroup] = useState("workspace");
   const [users, setUsers] = useState<ManagedUser[]>([]);
@@ -196,6 +190,13 @@ export function AdminDashboard() {
   const loadReferralRates = useCallback(async () => { if (can("referrals.view")) { const [result, networkUsers] = await Promise.all([referralRequest<{ rates: ReferralRate[] }>("admin/settings"), referralRequest<ReferralAdminUser[]>("admin/users")]); setReferralRates(result.rates); setReferralUsers(networkUsers); setReferralUserId((current) => current || networkUsers[0]?.id || ""); } }, [can]);
   useEffect(() => { if (!referralUserId || !can("referrals.view")) return; referralRequest<ReferralNetwork>(`admin/network/${encodeURIComponent(referralUserId)}`).then(setReferralNetwork).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load this referral network.")); }, [referralUserId, can]);
 
+  useEffect(() => {
+    const onInstallPrompt = (event: Event) => { event.preventDefault(); setInstallPrompt(event as BeforeInstallPromptEvent); };
+    const onInstalled = () => setInstallPrompt(null);
+    window.addEventListener("beforeinstallprompt", onInstallPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => { window.removeEventListener("beforeinstallprompt", onInstallPrompt); window.removeEventListener("appinstalled", onInstalled); };
+  }, []);
   useEffect(() => {
     let active = true;
     adminRequest<{ user: AdminActor }>("auth/me").then((result) => { if (active) setActor(result.user); }).catch(() => undefined).finally(() => { if (active) setAuthLoading(false); });
@@ -291,7 +292,7 @@ export function AdminDashboard() {
     setActor(null); setUsers([]); setAdmins([]); setSection("overview");
   }
   if (authLoading) return <main className="admin-loading" aria-busy="true"><span className="admin-loading-orbit" /><p>Checking admin session…</p></main>;
-  if (!actor) return <LoginForm onLogin={(admin) => { setActor(admin); setError(""); }} />;
+  if (!actor) return <LoginForm installPrompt={installPrompt} onInstalled={() => setInstallPrompt(null)} onLogin={(admin) => { setActor(admin); setError(""); }} />;
   if (!current) return <main className="admin-loading"><ShieldCheck size={24} /><p>This admin account has no sections enabled yet. Contact the super admin.</p><button className="admin-outline-button" onClick={signOut}>Sign out</button></main>;
 
   async function updateUserProfile(event: FormEvent<HTMLFormElement>) {

@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   title: "EchoVest — Copy trading signals and referral earnings",
   description: "Copy trading signals and referral earnings in one wallet with EchoVest.",
   applicationName: "EchoVest",
+  manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, title: "EchoVest", statusBarStyle: "default" },
   icons: { icon: "/echovest-icon.png", apple: "/echovest-icon.png" },
   openGraph: {
