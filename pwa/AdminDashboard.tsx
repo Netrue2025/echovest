@@ -79,6 +79,30 @@ const sectionPlaceholder: Record<string, string> = {
   audit: "Administrative actions will appear here after the audit log service is connected.",
 };
 
+type BeforeInstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
+
+function AdminInstallButton() {
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
+  const [installed, setInstalled] = useState(false);
+  useEffect(() => {
+    const onInstallPrompt = (event: Event) => { event.preventDefault(); setInstallPrompt(event as BeforeInstallPromptEvent); };
+    const onInstalled = () => { setInstalled(true); setInstallPrompt(null); setShowHelp(false); };
+    window.addEventListener("beforeinstallprompt", onInstallPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    if (window.matchMedia("(display-mode: standalone)").matches) setInstalled(true);
+    return () => { window.removeEventListener("beforeinstallprompt", onInstallPrompt); window.removeEventListener("appinstalled", onInstalled); };
+  }, []);
+  async function install() {
+    if (!installPrompt) { setShowHelp((visible) => !visible); return; }
+    await installPrompt.prompt();
+    const result = await installPrompt.userChoice;
+    if (result.outcome === "accepted") setInstalled(true);
+    setInstallPrompt(null);
+  }
+  return <div className="admin-install-control"><button type="button" className="admin-outline-button" onClick={() => void install()} disabled={installed}><Download size={14}/>{installed ? "Admin app installed" : "Install admin app"}</button>{showHelp && <small>Android or desktop: use your browser menu and choose “Install app” or “Add to home screen”. iPhone/iPad: in Safari, tap Share, then “Add to Home Screen”.</small>}</div>;
+}
+
 function LoginForm({ onLogin }: { onLogin: (actor: AdminActor) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -94,6 +118,7 @@ function LoginForm({ onLogin }: { onLogin: (actor: AdminActor) => void }) {
   }
   return <main className="admin-login-shell"><form className="admin-login-card" onSubmit={submit}>
     <div className="admin-login-mark"><ShieldCheck size={25} /></div><p className="admin-login-kicker">ECHOVEST ADMIN</p><h1>Admin sign in</h1><p className="admin-login-copy">Sign in with your administrator account to access the management console.</p>
+    <AdminInstallButton />
     <label>Email<input name="email" type="email" autoComplete="username" placeholder="Admin email" required /></label><label>Password<input name="password" type="password" autoComplete="current-password" placeholder="Admin password" required /></label>
     {error && <p className="admin-action-notice error" role="alert">{error}</p>}<button className="admin-primary-button" type="submit" disabled={busy}><LockKeyhole size={15} />{busy ? "Signing in…" : "Sign in securely"}</button>
   </form></main>;
