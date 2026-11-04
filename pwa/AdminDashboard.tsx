@@ -84,13 +84,21 @@ type BeforeInstallPromptEvent = Event & { prompt: () => Promise<void>; userChoic
 function AdminInstallButton({ installPrompt, onInstalled }: { installPrompt: BeforeInstallPromptEvent | null; onInstalled: () => void }) {
   const [showHelp, setShowHelp] = useState(false);
   const [installed, setInstalled] = useState(false);
+  const [onAdminOrigin, setOnAdminOrigin] = useState(false);
+  const adminPwaUrl = process.env.NEXT_PUBLIC_ADMIN_PWA_URL;
+  useEffect(() => {
+    if (!adminPwaUrl) return;
+    try { setOnAdminOrigin(window.location.origin === new URL(adminPwaUrl).origin); } catch { setOnAdminOrigin(false); }
+  }, [adminPwaUrl]);
   async function install() {
+    if (!adminPwaUrl) { setShowHelp((visible) => !visible); return; }
+    if (!onAdminOrigin) { window.location.assign(adminPwaUrl); return; }
     if (!installPrompt) { setShowHelp((visible) => !visible); return; }
     await installPrompt.prompt();
     const result = await installPrompt.userChoice;
     if (result.outcome === "accepted") { setInstalled(true); onInstalled(); }
   }
-  return <div className="admin-install-control"><button type="button" className="admin-outline-button" onClick={() => void install()} disabled={installed}><Download size={14}/>{installed ? "Admin app installed" : "Install admin app"}</button>{showHelp && <small>{installPrompt ? "Choose Install in the browser prompt to add EchoVest Admin to this device." : "On Android, open this admin page in Chrome (outside the installed EchoVest user app), then choose Install app from Chrome’s menu. Chrome treats the admin app as a separate install. On iPhone/iPad, open this page in Safari, tap Share, then Add to Home Screen."}</small>}</div>;
+  return <div className="admin-install-control"><button type="button" className="admin-outline-button" onClick={() => void install()} disabled={installed}><Download size={14}/>{installed ? "Admin app installed" : !adminPwaUrl ? "Install admin app" : onAdminOrigin ? "Install admin app" : "Open separate admin app"}</button>{showHelp && <small>{!adminPwaUrl ? "A separate admin app needs its own website address. Set NEXT_PUBLIC_ADMIN_PWA_URL to your admin subdomain URL after adding that domain to the frontend service in Railway." : installPrompt ? "Choose Install in the browser prompt to add EchoVest Admin to this device." : onAdminOrigin ? "On Android, use Chrome’s menu and choose Install app. On Samsung Internet, use its install icon/menu; if it reports an install error, use Chrome." : "Opening the separate admin app address…"}</small>}</div>;
 }
 
 function LoginForm({ onLogin, installPrompt, onInstalled }: { onLogin: (actor: AdminActor) => void; installPrompt: BeforeInstallPromptEvent | null; onInstalled: () => void }) {
