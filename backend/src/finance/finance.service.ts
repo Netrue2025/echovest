@@ -10,21 +10,22 @@ import { CopyTradeSignal, TradePosition } from '../trades/trade.schema.js';
 import { assertWithdrawalWindow } from './withdrawal-window.js';
 import { WithdrawalSecurityService } from '../withdrawal-security/withdrawal-security.service.js';
 import { availableTradeInterestUnits, tradeAmountUnits } from '../trades/trade-profit.js';
+import { ReferralsService } from '../referrals/referrals.service.js';
 
 type Actor = { id: string; email: string };
 @Injectable()
 export class FinanceService {
   private readonly logger = new Logger(FinanceService.name);
-  constructor(@InjectModel(User.name) private readonly users: Model<User>, @InjectModel(FinanceTransaction.name) private readonly transactions: Model<FinanceTransaction>, @InjectModel(FinanceSettings.name) private readonly settings: Model<FinanceSettings>, @InjectModel(AdminAudit.name) private readonly audit: Model<AdminAudit>, @InjectModel(TradePosition.name) private readonly tradePositions: Model<TradePosition>, @InjectModel(CopyTradeSignal.name) private readonly tradeSignals: Model<CopyTradeSignal>, private readonly notifications: NotificationsService, private readonly withdrawalSecurity: WithdrawalSecurityService, private readonly env: ConfigService) {}
+  constructor(@InjectModel(User.name) private readonly users: Model<User>, @InjectModel(FinanceTransaction.name) private readonly transactions: Model<FinanceTransaction>, @InjectModel(FinanceSettings.name) private readonly settings: Model<FinanceSettings>, @InjectModel(AdminAudit.name) private readonly audit: Model<AdminAudit>, @InjectModel(TradePosition.name) private readonly tradePositions: Model<TradePosition>, @InjectModel(CopyTradeSignal.name) private readonly tradeSignals: Model<CopyTradeSignal>, private readonly notifications: NotificationsService, private readonly withdrawalSecurity: WithdrawalSecurityService, private readonly env: ConfigService, private readonly referrals: ReferralsService) {}
   private async config() { return await this.settings.findOneAndUpdate({ key: 'platform' }, { $setOnInsert: { key: 'platform' } }, { upsert: true, new: true, setDefaultsOnInsert: true }).lean().exec(); }
-  async publicSettings() { const s = await this.config(); return { depositMethod: s?.depositMethod ?? (this.env.get<string>('DEPOSIT_PROVIDER_MODE') === 'chainpay' ? 'chainpay' : 'manual'), depositWalletAddress: s?.depositWalletAddress ?? '', depositNetwork: s?.depositNetwork ?? '', depositInstructions: s?.depositInstructions ?? '', minimumDeposit: s?.minimumDeposit ?? 0, minimumWithdrawal: s?.minimumWithdrawal ?? 0, capitalLockDays: s?.capitalLockDays ?? 60, withdrawalDays: s?.withdrawalDays ?? [1, 3, 5], withdrawalWindowStart: s?.withdrawalWindowStart ?? '09:00', withdrawalWindowEnd: s?.withdrawalWindowEnd ?? '17:00', withdrawalTimezone: s?.withdrawalTimezone ?? 'Africa/Lagos' }; }
-  async updateSettings(input: { depositMethod: 'manual' | 'chainpay'; depositWalletAddress: string; depositNetwork: string; depositInstructions: string; minimumDeposit: number; minimumWithdrawal: number; capitalLockDays: number; withdrawalDays: number[]; withdrawalWindowStart: string; withdrawalWindowEnd: string; withdrawalTimezone: string }, actor: Actor) {
+  async publicSettings() { const s = await this.config(); return { depositMethod: s?.depositMethod ?? (this.env.get<string>('DEPOSIT_PROVIDER_MODE') === 'chainpay' ? 'chainpay' : 'manual'), depositWalletAddress: s?.depositWalletAddress ?? '', depositNetwork: s?.depositNetwork ?? '', depositInstructions: s?.depositInstructions ?? '', minimumDeposit: s?.minimumDeposit ?? 0, minimumWithdrawal: s?.minimumWithdrawal ?? 0, withdrawalFeePercent: s?.withdrawalFeePercent ?? 0, withdrawalFeeFixed: s?.withdrawalFeeFixed ?? 0, capitalLockDays: s?.capitalLockDays ?? 60, withdrawalDays: s?.withdrawalDays ?? [1, 3, 5], withdrawalWindowStart: s?.withdrawalWindowStart ?? '09:00', withdrawalWindowEnd: s?.withdrawalWindowEnd ?? '17:00', withdrawalTimezone: s?.withdrawalTimezone ?? 'Africa/Lagos' }; }
+  async updateSettings(input: { depositMethod: 'manual' | 'chainpay'; depositWalletAddress: string; depositNetwork: string; depositInstructions: string; minimumDeposit: number; minimumWithdrawal: number; withdrawalFeePercent: number; withdrawalFeeFixed: number; capitalLockDays: number; withdrawalDays: number[]; withdrawalWindowStart: string; withdrawalWindowEnd: string; withdrawalTimezone: string }, actor: Actor) {
     if (input.depositMethod === 'manual' && (!input.depositWalletAddress.trim() || !input.depositNetwork.trim())) throw new BadRequestException('Enter the manual deposit wallet address and network before enabling manual deposits.');
     if (input.withdrawalWindowStart >= input.withdrawalWindowEnd) throw new BadRequestException('Withdrawal window must end after it starts on the same day.');
     if (new Set(input.withdrawalDays).size !== input.withdrawalDays.length) throw new BadRequestException('Choose each withdrawal day only once.');
     try { new Intl.DateTimeFormat('en', { timeZone: input.withdrawalTimezone }); } catch { throw new BadRequestException('Choose a valid withdrawal timezone.'); }
     const result = await this.settings.findOneAndUpdate({ key: 'platform' }, { $set: { ...input, depositWalletAddress: input.depositWalletAddress.trim(), depositNetwork: input.depositNetwork.trim(), depositInstructions: input.depositInstructions.trim(), withdrawalTimezone: input.withdrawalTimezone.trim() } }, { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }).lean().exec();
-    await this.audit.create({ actorId: actor.id, actorEmail: actor.email, action: 'finance.settings.updated', targetType: 'finance', targetId: 'platform', targetLabel: 'Finance settings', detail: `Deposit method ${input.depositMethod}; minimum deposit ${input.minimumDeposit}; minimum withdrawal ${input.minimumWithdrawal}; capital lock ${input.capitalLockDays} days; withdrawal window ${input.withdrawalDays.join(',')} ${input.withdrawalWindowStart}-${input.withdrawalWindowEnd} ${input.withdrawalTimezone}.` });
+    await this.audit.create({ actorId: actor.id, actorEmail: actor.email, action: 'finance.settings.updated', targetType: 'finance', targetId: 'platform', targetLabel: 'Finance settings', detail: `Deposit method ${input.depositMethod}; minimum deposit ${input.minimumDeposit}; minimum withdrawal ${input.minimumWithdrawal}; withdrawal fee ${input.withdrawalFeePercent}% + ${input.withdrawalFeeFixed} fixed; capital lock ${input.capitalLockDays} days; withdrawal window ${input.withdrawalDays.join(',')} ${input.withdrawalWindowStart}-${input.withdrawalWindowEnd} ${input.withdrawalTimezone}.` });
     return result;
   }
   async summary(userId: string) {
@@ -102,7 +103,9 @@ export class FinanceService {
     if (amount < (settings.minimumDeposit ?? 0)) throw new BadRequestException(`The minimum deposit is ${settings.minimumDeposit} USDT.`);
     try {
       if (txid?.trim() && await this.audit.exists({ action: 'finance.deposit.txid_tombstone', targetId: txid.trim() }).exec()) throw new ConflictException('This transaction hash was already used and cannot be submitted again.');
-      return await this.transactions.create({ userId: new Types.ObjectId(userId), type: 'deposit', amount, balanceType: 'trading', status: 'pending_review', ...(txid?.trim() ? { txid: txid.trim() } : {}), destinationAddress: settings.depositWalletAddress.trim(), network: settings.depositNetwork.trim() });
+      const created = await this.transactions.create({ userId: new Types.ObjectId(userId), type: 'deposit', amount, balanceType: 'trading', status: 'pending_review', ...(txid?.trim() ? { txid: txid.trim() } : {}), destinationAddress: settings.depositWalletAddress.trim(), network: settings.depositNetwork.trim() });
+      void this.notifications.notifyAdmins('Deposit submitted', `A user submitted a ${amount} USDT deposit for review.`, '/admin?section=deposits').catch(() => undefined);
+      return created;
     } catch (error) {
       if (typeof error === 'object' && error && 'code' in error && error.code === 11000) throw new ConflictException('This transaction hash has already been submitted.');
       throw error;
@@ -126,7 +129,14 @@ export class FinanceService {
       : { $gte: [{ $subtract: [{ $ifNull: ['$referralBalance', 0] }, { $ifNull: ['$pendingReferralWithdrawals', 0] }] }, input.amount] };
     const held = await this.users.findOneAndUpdate({ _id: userId, isDisabled: { $ne: true }, withdrawalsDisabled: { $ne: true }, $expr: availability }, { $inc: { [pendingField]: input.amount } }, { new: true }).lean().exec();
     if (!held) throw new BadRequestException('The amount exceeds your available balance.');
-    try { return await this.transactions.create({ userId: new Types.ObjectId(userId), type: 'withdrawal', amount: input.amount, balanceType: input.balanceType, status: 'pending_review', destinationAddress: input.destinationAddress.trim(), network: input.network.trim(), maturedPrincipalWithdrawal: isMaturedPrincipal }); }
+    try {
+      const withdrawalFee = Math.round((input.amount * (s?.withdrawalFeePercent ?? 0) / 100 + (s?.withdrawalFeeFixed ?? 0)) * 1e8) / 1e8;
+      const payoutAmount = Math.round((input.amount - withdrawalFee) * 1e8) / 1e8;
+      if (payoutAmount <= 0) throw new BadRequestException('The withdrawal charge must be less than the withdrawal amount.');
+      const created = await this.transactions.create({ userId: new Types.ObjectId(userId), type: 'withdrawal', amount: input.amount, withdrawalFee, payoutAmount, balanceType: input.balanceType, status: 'pending_review', destinationAddress: input.destinationAddress.trim(), network: input.network.trim(), maturedPrincipalWithdrawal: isMaturedPrincipal });
+      void this.notifications.notifyAdmins('Withdrawal submitted', `A user submitted a ${input.amount} USD withdrawal for review.`, '/admin?section=withdrawals').catch(() => undefined);
+      return created;
+    }
     catch (error) { await this.users.updateOne({ _id: userId }, { $inc: { [pendingField]: -input.amount } }).exec(); throw error; }
   }
   async adminTransactions(type?: 'deposit' | 'withdrawal', includeArchived = false) {
@@ -240,6 +250,7 @@ export class FinanceService {
             const unlockAt = new Date(Date.now() + (settings?.capitalLockDays ?? 60) * 24 * 60 * 60 * 1000);
             const credited = await this.users.updateOne({ _id: transaction.userId, role: 'user', isDisabled: { $ne: true } }, { $inc: { tradingBalance: transaction.amount }, $push: { lockedCapitalLots: { amount: transaction.amount, unlockAt } } }, { session }).exec();
             if (!credited.matchedCount) throw new ConflictException('Could not credit the user account.');
+            await this.referrals.accrueDeposit(String(transaction.userId), String(transaction._id), transaction.amount, session);
           }
           await this.audit.create([{ actorId: actor.id, actorEmail: actor.email, action: `finance.deposit.${decision}`, targetType: 'transaction', targetId: id, targetLabel: String(transaction.userId), detail: decision === 'approved' ? `${transaction.amount} USDT manual deposit approved; credited to locked investment balance.` : reason!.trim() }], { session });
           return;
@@ -281,6 +292,8 @@ export class FinanceService {
     const reviewed = await this.transactions.findById(id).lean().exec();
     if (reviewed) {
       const decisionText = decision === 'approved' ? 'approved' : 'rejected';
+      const payoutAmount = transaction.payoutAmount ?? transaction.amount;
+      const withdrawalFee = transaction.withdrawalFee ?? 0;
       const title = transaction.type === 'deposit' ? `Deposit ${decisionText}` : `Withdrawal ${decisionText}`;
       const message = transaction.type === 'deposit'
         ? decision === 'approved' ? `Your ${transaction.amount} USDT deposit was approved and added to your investment balance. The capital remains locked according to the account schedule.` : `Your deposit was rejected. ${reason?.trim() || 'Please review the request details.'}`
@@ -289,7 +302,7 @@ export class FinanceService {
             ? `Your ${transaction.amount} USD trade profit withdrawal was approved.`
             : transaction.maturedPrincipalWithdrawal
               ? `Your ${transaction.amount} USD matured investment principal withdrawal was approved.`
-              : `Your ${transaction.amount} USDT withdrawal was approved and debited from your ${transaction.balanceType} balance.`
+              : `Your withdrawal was approved. ${transaction.amount} USDT was debited from your ${transaction.balanceType} balance, including a ${withdrawalFee} USDT charge; ${payoutAmount} USDT is the payout amount.`
         : `Your withdrawal was rejected. ${reason?.trim() || 'Please review the request details.'}`;
       try { await this.notifications.notifyUser(String(transaction.userId), title, message, 'withdrawal'); }
       catch (error) { this.logger.error(`Transaction ${expectedType} notification could not be saved: ${error instanceof Error ? error.message : 'unknown error'}`); }

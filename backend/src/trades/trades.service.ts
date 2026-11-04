@@ -288,13 +288,17 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
           throw new BadRequestException(`Available profit from closed trades is ${(availableUnits / TRADE_AMOUNT_SCALE).toFixed(8)} USD. Refresh the balance and try again.`);
         }
 
-        const docs = await this.transactions.create([{ userId: new Types.ObjectId(userId), type: 'withdrawal', amount, balanceType: 'trading', status: 'pending_review', destinationAddress: destinationAddress.trim(), network: network.trim(), sourceType: 'trade_interest', profitLedger: true, profitPositionAllocations: allocations }], { session });
+        const withdrawalFee = Math.round((amount * (settings?.withdrawalFeePercent ?? 0) / 100 + (settings?.withdrawalFeeFixed ?? 0)) * 1e8) / 1e8;
+        const payoutAmount = Math.round((amount - withdrawalFee) * 1e8) / 1e8;
+        if (payoutAmount <= 0) throw new BadRequestException('The withdrawal charge must be less than the withdrawal amount.');
+        const docs = await this.transactions.create([{ userId: new Types.ObjectId(userId), type: 'withdrawal', amount, withdrawalFee, payoutAmount, balanceType: 'trading', status: 'pending_review', destinationAddress: destinationAddress.trim(), network: network.trim(), sourceType: 'trade_interest', profitLedger: true, profitPositionAllocations: allocations }], { session });
         createdTransaction = docs[0];
         referralPayouts = await this.referrals.accrueTrading(userId, String(createdTransaction._id), amount, session);
         await this.writeAudit(userId, 'system', 'trades.profit.withdrawal_requested', String(createdTransaction._id), 'Total profit earned', `${amount} USD profit withdrawal submitted across ${allocations.length} closed trade position(s); pending admin review.`, session);
       });
     } finally { await session.endSession(); }
     if (createdTransaction) await this.notifications.notifyUser(userId, 'Profit withdrawal requested', `${amount} USD profit has been submitted for review.`, 'withdrawal').catch((error) => this.logger.warn(`Profit withdrawal notification failed: ${error instanceof Error ? error.message : 'unknown error'}`));
+    if (createdTransaction) void this.notifications.notifyAdmins('Profit withdrawal submitted', 'A user submitted a profit withdrawal for review.', '/admin?section=withdrawals').catch(() => undefined);
     for (const payout of referralPayouts) await this.notifications.notifyUser(payout.userId, 'Referral trading commission credited', `You earned ${payout.amount} USD from a tier ${payout.tier} referral's copy-trade profit.`, 'general').catch((error) => this.logger.warn(`Referral trade commission notification failed: ${error instanceof Error ? error.message : 'unknown error'}`));
     return { transaction: createdTransaction, message: 'Profit withdrawal request submitted for review.' };
   }

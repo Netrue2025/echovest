@@ -94,7 +94,7 @@ export class NotificationsService implements OnModuleInit {
   }
 
   async notifyAdmins(title: string, message: string, url = '/admin') {
-    const admins = await this.users.find({ role: 'admin', isDisabled: { $ne: true }, $or: [{ isSuperAdmin: true }, { adminPermissions: 'support.manage' }] }).select('_id').lean().exec();
+    const admins = await this.users.find({ role: 'admin', isDisabled: { $ne: true } }).select('_id').lean().exec();
     await this.sendToUsers(admins.map((admin) => String(admin._id)), { title, body: message, url });
   }
 

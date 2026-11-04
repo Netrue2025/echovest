@@ -19,6 +19,8 @@ export class FinanceSettingsDto {
   @IsString() @MaxLength(2000) depositInstructions!: string;
   @IsNumber({ maxDecimalPlaces: 8 }) @Min(0) minimumDeposit!: number;
   @IsNumber({ maxDecimalPlaces: 8 }) @Min(0) minimumWithdrawal!: number;
+  @IsNumber({ maxDecimalPlaces: 4 }) @Min(0) @Max(100) withdrawalFeePercent!: number;
+  @IsNumber({ maxDecimalPlaces: 8 }) @Min(0) @Max(10000) withdrawalFeeFixed!: number;
   @IsNumber({ maxDecimalPlaces: 0 }) @Min(1) @Max(3650) capitalLockDays!: number;
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(7) @IsInt({ each: true }) @Min(0, { each: true }) @Max(6, { each: true }) withdrawalDays!: number[];
   @IsString() @Matches(/^([01]\d|2[0-3]):[0-5]\d$/) withdrawalWindowStart!: string;

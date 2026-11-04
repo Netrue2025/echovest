@@ -5,6 +5,7 @@ import { ArrowUpRight, Clock3, RefreshCw, Signal, Users, Zap, Ban } from "lucide
 import { CopyTradeSignal, tradeRequest } from "../lib/trading-api";
 
 type SignalRecord = Omit<CopyTradeSignal, "participation">;
+const TOP_TRADING_PAIRS = ["BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT", "ADA/USDT", "DOGE/USDT", "TRX/USDT", "AVAX/USDT", "LINK/USDT", "DOT/USDT", "LTC/USDT", "BCH/USDT", "TON/USDT", "SUI/USDT", "NEAR/USDT", "APT/USDT", "ARB/USDT", "OP/USDT", "UNI/USDT"] as const;
 const localDateTime = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 const formatLockTerm = (startsAt: string, endsAt: string, fallbackDays = 1) => {
   const scheduledMinutes = (new Date(endsAt).getTime() - new Date(startsAt).getTime()) / 60_000;
@@ -74,7 +75,7 @@ export function AdminTradeManager() {
       {error && <p className="admin-action-notice error" role="alert">{error}</p>}{notice && <p className="admin-action-notice" role="status">{notice}</p>}
       <div className="admin-trade-fields">
         <label>Trade title<input name="title" minLength={3} maxLength={100} placeholder="e.g. BTC momentum session" required /></label>
-        <label>Trading pair<select name="pair" defaultValue="BTC/USDT"><option>BTC/USDT</option><option>ETH/USDT</option><option>BNB/USDT</option><option>SOL/USDT</option><option>XRP/USDT</option><option>ADA/USDT</option><option>DOGE/USDT</option></select></label>
+        <label>Trading pair<select name="pair" defaultValue="BTC/USDT">{TOP_TRADING_PAIRS.map((pair) => <option key={pair} value={pair}>{pair}</option>)}</select></label>
         <label>Trade starts<input name="startsAt" type="datetime-local" min={localDateTime(new Date())} value={start} onChange={(event) => { const value = event.target.value; setStart(value); if (new Date(end) <= new Date(value)) setEnd(localDateTime(new Date(new Date(value).getTime() + 24 * 60 * 60 * 1000))); }} required /><small>Local timezone: {Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"}</small></label>
         <label>Trade ends<input name="endsAt" type="datetime-local" min={start} value={end} onChange={(event) => setEnd(event.target.value)} required /><small>This interval sets the capital lock duration.</small></label>
         <label>Configured ROI for full term (%)<input name="roiPercent" type="number" min="0" max="100" step="0.01" placeholder="0.00" required /></label>

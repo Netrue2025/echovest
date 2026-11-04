@@ -7,6 +7,7 @@ import { DepositLedgerEntry } from './deposit-ledger-entry.schema.js';
 import { ProviderDeposit } from './provider-deposit.schema.js';
 import { User } from '../users/user.schema.js';
 import { FinanceSettings } from '../finance/finance.schema.js';
+import { ReferralsService } from '../referrals/referrals.service.js';
 
 @Injectable()
 export class DepositCreditService {
@@ -18,6 +19,7 @@ export class DepositCreditService {
     @InjectModel(DepositLedgerEntry.name) private readonly ledger: Model<DepositLedgerEntry>,
     @InjectModel(User.name) private readonly users: Model<User>,
     @InjectModel(FinanceSettings.name) private readonly settings: Model<FinanceSettings>,
+    private readonly referrals: ReferralsService,
   ) {}
 
   /** Credits only a deposit that passed provider and independent-chain verification. */
@@ -60,6 +62,7 @@ export class DepositCreditService {
           { session },
         ).exec();
         if (userUpdate.matchedCount !== 1) throw new Error('Deposit user balance could not be updated.');
+        await this.referrals.accrueDeposit(String(event.userId), String(event._id), amount, session);
         await this.deposits.updateOne(
           { _id: event._id, status: 'crediting' },
           { $set: { status: 'credited', creditReference: reference, creditedAt: new Date(), reason: `Provider and solidified TRON transfer verified; ledger, deposit wallet, and user investment balance credited. Capital unlocks after ${capitalLockDays} days.` } },

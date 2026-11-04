@@ -32,6 +32,6 @@ export function financeStatusLabel(status: string): string {
 }
 
 export type WithdrawalPolicy = { capitalLockDays: number; withdrawalDays: number[]; withdrawalWindowStart: string; withdrawalWindowEnd: string; withdrawalTimezone: string };
-export type FinanceSettings = { depositWalletAddress: string; depositNetwork: string; depositInstructions: string; minimumDeposit: number; minimumWithdrawal: number } & WithdrawalPolicy;
-export type FinanceTransaction = { id: string; type: 'deposit' | 'withdrawal'; amount: number; balanceType: 'trading' | 'referral'; sourceType?: 'trade_interest'; maturedPrincipalWithdrawal?: boolean; status: string; txid: string; network: string; destinationAddress: string; rejectionReason: string; createdAt?: string };
+export type FinanceSettings = { depositWalletAddress: string; depositNetwork: string; depositInstructions: string; minimumDeposit: number; minimumWithdrawal: number; withdrawalFeePercent?: number; withdrawalFeeFixed?: number } & WithdrawalPolicy;
+export type FinanceTransaction = { id: string; type: 'deposit' | 'withdrawal'; amount: number; withdrawalFee?: number; payoutAmount?: number; balanceType: 'trading' | 'referral'; sourceType?: 'trade_interest'; maturedPrincipalWithdrawal?: boolean; status: string; txid: string; network: string; destinationAddress: string; rejectionReason: string; createdAt?: string };
 export type FinanceSummary = { balances: { trading: number; referral: number; availableTrading: number; maturedPrincipal?: number; availableMaturedPrincipal?: number; lockedCapital?: number; nextCapitalUnlockAt?: string | null; capitalLockDays?: number; availableReferral: number; totalProfitEarned?: number; availableProfit?: number }; transactions: FinanceTransaction[] };

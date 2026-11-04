@@ -9,6 +9,8 @@ export class FinanceTransaction {
   @Prop({ type: Types.ObjectId, required: true, index: true }) userId!: Types.ObjectId;
   @Prop({ required: true, enum: ['deposit', 'withdrawal'], index: true }) type!: 'deposit' | 'withdrawal';
   @Prop({ required: true, min: 0.01 }) amount!: number;
+  @Prop({ type: Number, default: 0, min: 0 }) withdrawalFee!: number;
+  @Prop({ type: Number, default: 0, min: 0 }) payoutAmount!: number;
   @Prop({ required: true, enum: ['trading', 'referral'], default: 'trading' }) balanceType!: 'trading' | 'referral';
   @Prop({ required: true, enum: ['network_confirmation', 'pending_review', 'approved', 'rejected'], index: true }) status!: 'network_confirmation' | 'pending_review' | 'approved' | 'rejected';
   @Prop({ sparse: true, unique: true }) txid?: string;
@@ -41,6 +43,8 @@ export class FinanceSettings {
   @Prop({ enum: ['manual', 'chainpay'] }) depositMethod?: 'manual' | 'chainpay';
   @Prop({ default: 0, min: 0 }) minimumDeposit!: number;
   @Prop({ default: 0, min: 0 }) minimumWithdrawal!: number;
+  @Prop({ type: Number, default: 0, min: 0, max: 100 }) withdrawalFeePercent!: number;
+  @Prop({ type: Number, default: 0, min: 0, max: 10000 }) withdrawalFeeFixed!: number;
   @Prop({ default: 60, min: 1, max: 3650 }) capitalLockDays!: number;
   @Prop({ type: [Number], default: [1, 3, 5] }) withdrawalDays!: number[];
   @Prop({ default: '09:00', match: /^([01]\d|2[0-3]):[0-5]\d$/ }) withdrawalWindowStart!: string;

@@ -11,6 +11,7 @@ import { ProviderDeposit } from './provider-deposit.schema.js';
 import { TronVerificationService } from './tron-verification.service.js';
 import { usdtToMicros } from './deposit-amount.js';
 import { isOfficialTronMainnetUsdtContract } from './tron-network.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 
 type ChainPayEvent = Record<string, unknown>;
 type AdminActor = { id: string; email: string };
@@ -50,6 +51,7 @@ export class DepositsService implements OnModuleInit, OnModuleDestroy {
     private readonly config: ConfigService,
     private readonly tron: TronVerificationService,
     private readonly credits: DepositCreditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private isLiveChainPayEnabled() {
@@ -107,6 +109,7 @@ export class DepositsService implements OnModuleInit, OnModuleDestroy {
         status, rawEvent: summary, reconciliationDifferences: differences,
         reason: differences.length ? 'Webhook fields are incomplete or inconsistent; no credit was issued.' : providerStatus === 'pending' ? 'Provider reports pending; no credit was issued.' : 'Awaiting provider and independent TRON verification.',
       });
+      if (providerStatus === 'confirmed') void this.notifications.notifyAdmins('Deposit waiting for confirmation checks', 'ChainPay reported a deposit. Independent verification is in progress.', '/admin?section=deposits').catch(() => undefined);
       if (providerStatus === 'confirmed' && !differences.length) {
         // Begin provider and on-chain reconciliation immediately on the confirmed webhook.
         // The scheduled worker remains as a recovery path if this request or process is interrupted.

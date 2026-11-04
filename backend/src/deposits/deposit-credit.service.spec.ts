@@ -42,7 +42,8 @@ function setup() {
     return { matchedCount: 1 };
   } })) };
   const settings = { findOne: vi.fn(() => ({ session() { return this; }, lean() { return this; }, exec: async () => ({ capitalLockDays: 30 }) })) };
-  return { service: new DepositCreditService(connection as never, deposits as never, balances as never, ledger as never, users as never, settings as never), event, ledgerRows, session, deposits, balances, ledger, users, settings, userUpdates, userTradingBalance: () => userTradingBalance, micros: () => micros };
+  const referrals = { accrueDeposit: vi.fn(async () => []) };
+  return { service: new DepositCreditService(connection as never, deposits as never, balances as never, ledger as never, users as never, settings as never, referrals as never), event, ledgerRows, session, deposits, balances, ledger, users, settings, referrals, userUpdates, userTradingBalance: () => userTradingBalance, micros: () => micros };
 }
 
 describe('DepositCreditService', () => {
