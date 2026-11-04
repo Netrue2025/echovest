@@ -84,16 +84,13 @@ type BeforeInstallPromptEvent = Event & { prompt: () => Promise<void>; userChoic
 function AdminInstallButton({ installPrompt, onInstalled }: { installPrompt: BeforeInstallPromptEvent | null; onInstalled: () => void }) {
   const [showHelp, setShowHelp] = useState(false);
   const [installed, setInstalled] = useState(false);
-  useEffect(() => {
-    if (window.matchMedia("(display-mode: standalone)").matches) setInstalled(true);
-  }, []);
   async function install() {
     if (!installPrompt) { setShowHelp((visible) => !visible); return; }
     await installPrompt.prompt();
     const result = await installPrompt.userChoice;
     if (result.outcome === "accepted") { setInstalled(true); onInstalled(); }
   }
-  return <div className="admin-install-control"><button type="button" className="admin-outline-button" onClick={() => void install()} disabled={installed}><Download size={14}/>{installed ? "Admin app installed" : "Install admin app"}</button>{showHelp && <small>{installPrompt ? "Choose Install in the browser prompt to add EchoVest Admin to this device." : "This browser has not offered direct installation yet. On Android or desktop Chrome, open the browser menu and choose Install app. On iPhone/iPad, open this page in Safari, tap Share, then Add to Home Screen."}</small>}</div>;
+  return <div className="admin-install-control"><button type="button" className="admin-outline-button" onClick={() => void install()} disabled={installed}><Download size={14}/>{installed ? "Admin app installed" : "Install admin app"}</button>{showHelp && <small>{installPrompt ? "Choose Install in the browser prompt to add EchoVest Admin to this device." : "On Android, open this admin page in Chrome (outside the installed EchoVest user app), then choose Install app from Chrome’s menu. Chrome treats the admin app as a separate install. On iPhone/iPad, open this page in Safari, tap Share, then Add to Home Screen."}</small>}</div>;
 }
 
 function LoginForm({ onLogin, installPrompt, onInstalled }: { onLogin: (actor: AdminActor) => void; installPrompt: BeforeInstallPromptEvent | null; onInstalled: () => void }) {
