@@ -128,7 +128,7 @@ export class ReferralsService {
       }
     }
     const result = await this.settings.findOneAndUpdate({ key: 'platform' }, { $set: { rates: ordered, levels: orderedLevels } }, { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }).lean().exec();
-    const detail = orderedLevels.map((tier, index) => `${tier.level}: ${tier.requiredDirectReferrals} direct referrals or ${tier.requiredTradingBalance} USD locked balance; ${tier.withdrawalReviewHours || 'standard'}h withdrawal review target; ${tier.withdrawalFeeDiscountPercent}% fee discount; referral commission ${ordered[index].tier1}/${ordered[index].tier2}/${ordered[index].tier3}%.`).join(' | ');
+    const detail = orderedLevels.map((tier, index) => `${tier.level}: ${tier.requiredDirectReferrals} direct referrals or ${tier.requiredTradingBalance} USD locked balance; ${tier.withdrawalReviewHours || 'standard'}h withdrawal review target; ${tier.withdrawalFeeDiscountPercent} percentage-point withdrawal fee reduction; referral commission ${ordered[index].tier1}/${ordered[index].tier2}/${ordered[index].tier3}%.`).join(' | ');
     await this.audit.create({ actorId: actor.id, actorEmail: actor.email, action: 'membership.settings.updated', targetType: 'referrals', targetId: 'platform', targetLabel: 'Membership levels', detail });
     return { rates: result?.rates ?? ordered, levels: this.membershipTiers(result?.levels ?? orderedLevels) };
   }

@@ -8,6 +8,7 @@ import { ProviderDeposit } from './provider-deposit.schema.js';
 import { User } from '../users/user.schema.js';
 import { FinanceSettings } from '../finance/finance.schema.js';
 import { ReferralsService } from '../referrals/referrals.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 
 @Injectable()
 export class DepositCreditService {
@@ -20,11 +21,13 @@ export class DepositCreditService {
     @InjectModel(User.name) private readonly users: Model<User>,
     @InjectModel(FinanceSettings.name) private readonly settings: Model<FinanceSettings>,
     private readonly referrals: ReferralsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Credits only a deposit that passed provider and independent-chain verification. */
   async creditVerifiedDeposit(depositId: string) {
     const session = await this.connection.startSession();
+    let referralPayouts: { userId: string; amount: number; tier: number }[] = [];
     try {
       let credited = false;
       await session.withTransaction(async () => {
@@ -62,7 +65,7 @@ export class DepositCreditService {
           { session },
         ).exec();
         if (userUpdate.matchedCount !== 1) throw new Error('Deposit user balance could not be updated.');
-        await this.referrals.accrueDeposit(String(event.userId), String(event._id), amount, session);
+        referralPayouts = await this.referrals.accrueDeposit(String(event.userId), String(event._id), amount, session);
         await this.deposits.updateOne(
           { _id: event._id, status: 'crediting' },
           { $set: { status: 'credited', creditReference: reference, creditedAt: new Date(), reason: `Provider and solidified TRON transfer verified; ledger, deposit wallet, and user investment balance credited. Capital unlocks after ${capitalLockDays} days.` } },
@@ -70,6 +73,17 @@ export class DepositCreditService {
         ).exec();
         credited = true;
       }, { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' } });
+      if (credited) {
+        for (const payout of referralPayouts) {
+          await this.notifications.notifyUser(
+            payout.userId,
+            'Referral deposit bonus credited',
+            `You earned ${payout.amount} USD from a tier ${payout.tier} referral deposit.`,
+            'general',
+            '/dashboard?view=referrals',
+          ).catch(() => undefined);
+        }
+      }
       return { credited };
     } catch (error) {
       if (typeof error === 'object' && error && 'code' in error && error.code === 11000) return { credited: false, duplicate: true };

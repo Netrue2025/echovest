@@ -231,7 +231,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
         const user = await this.users.findOne({ _id: userId, role: 'user', isDisabled: { $ne: true }, withdrawalsDisabled: { $ne: true } }).session(session).select('_id membershipLevel').lean().exec();
         if (!user) throw new NotFoundException('Account not found or withdrawals are disabled.');
         const membershipBenefit = await this.referrals.membershipBenefits(user.membershipLevel, session);
-        const effectiveFeePercent = (withdrawalSettings?.withdrawalFeePercent ?? 0) * (1 - membershipBenefit.withdrawalFeeDiscountPercent / 100);
+          const effectiveFeePercent = Math.max(0, (withdrawalSettings?.withdrawalFeePercent ?? 0) - membershipBenefit.withdrawalFeeDiscountPercent);
         const withdrawalFee = Math.round((amount * effectiveFeePercent / 100 + (withdrawalSettings?.withdrawalFeeFixed ?? 0)) * 1e8) / 1e8;
         const payoutAmount = Math.round((amount - withdrawalFee) * 1e8) / 1e8;
         if (payoutAmount <= 0) throw new BadRequestException('The withdrawal charge must be less than the withdrawal amount.');
@@ -294,7 +294,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
         }
 
         const membershipBenefit = await this.referrals.membershipBenefits(user.membershipLevel, session);
-        const effectiveFeePercent = (settings?.withdrawalFeePercent ?? 0) * (1 - membershipBenefit.withdrawalFeeDiscountPercent / 100);
+        const effectiveFeePercent = Math.max(0, (settings?.withdrawalFeePercent ?? 0) - membershipBenefit.withdrawalFeeDiscountPercent);
         const withdrawalFee = Math.round((amount * effectiveFeePercent / 100 + (settings?.withdrawalFeeFixed ?? 0)) * 1e8) / 1e8;
         const payoutAmount = Math.round((amount - withdrawalFee) * 1e8) / 1e8;
         if (payoutAmount <= 0) throw new BadRequestException('The withdrawal charge must be less than the withdrawal amount.');

@@ -132,7 +132,7 @@ export class FinanceService {
     if (!held) throw new BadRequestException('The amount exceeds your available balance.');
     try {
       const membershipBenefit = await this.referrals.membershipBenefits(user.membershipLevel);
-      const effectiveFeePercent = (s?.withdrawalFeePercent ?? 0) * (1 - membershipBenefit.withdrawalFeeDiscountPercent / 100);
+      const effectiveFeePercent = Math.max(0, (s?.withdrawalFeePercent ?? 0) - membershipBenefit.withdrawalFeeDiscountPercent);
       const withdrawalFee = Math.round((input.amount * effectiveFeePercent / 100 + (s?.withdrawalFeeFixed ?? 0)) * 1e8) / 1e8;
       const payoutAmount = Math.round((input.amount - withdrawalFee) * 1e8) / 1e8;
       if (payoutAmount <= 0) throw new BadRequestException('The withdrawal charge must be less than the withdrawal amount.');
@@ -262,6 +262,7 @@ export class FinanceService {
     if (transaction.status !== validCurrent) throw new ConflictException('This request has already been reviewed.');
     if (decision === 'rejected' && !reason?.trim()) throw new BadRequestException('Add a reason when rejecting a request.');
     const session = await this.transactions.db.startSession();
+    let depositReferralPayouts: { userId: string; amount: number; tier: number }[] = [];
     try {
       await session.withTransaction(async () => {
         if (transaction.type === 'deposit') {
@@ -274,7 +275,7 @@ export class FinanceService {
             const unlockAt = new Date(Date.now() + (settings?.capitalLockDays ?? 60) * 24 * 60 * 60 * 1000);
             const credited = await this.users.updateOne({ _id: transaction.userId, role: 'user', isDisabled: { $ne: true } }, { $inc: { tradingBalance: transaction.amount }, $push: { lockedCapitalLots: { amount: transaction.amount, unlockAt } } }, { session }).exec();
             if (!credited.matchedCount) throw new ConflictException('Could not credit the user account.');
-            await this.referrals.accrueDeposit(String(transaction.userId), String(transaction._id), transaction.amount, session);
+            depositReferralPayouts = await this.referrals.accrueDeposit(String(transaction.userId), String(transaction._id), transaction.amount, session);
           }
           await this.audit.create([{ actorId: actor.id, actorEmail: actor.email, action: `finance.deposit.${decision}`, targetType: 'transaction', targetId: id, targetLabel: String(transaction.userId), detail: decision === 'approved' ? `${transaction.amount} USDT manual deposit approved; credited to locked investment balance.` : reason!.trim() }], { session });
           return;
@@ -313,6 +314,11 @@ export class FinanceService {
         await this.audit.create([{ actorId: actor.id, actorEmail: actor.email, action: `finance.${transaction.type}.${decision}`, targetType: 'transaction', targetId: id, targetLabel: String(transaction.userId), detail: decision === 'rejected' ? reason!.trim() : `${transaction.amount} USDT approved.` }], { session });
       });
     } finally { await session.endSession(); }
+    if (transaction.type === 'deposit' && decision === 'approved') {
+      for (const payout of depositReferralPayouts) {
+        await this.notifications.notifyUser(payout.userId, 'Referral deposit bonus credited', `You earned ${payout.amount} USD from a tier ${payout.tier} referral deposit.`, 'general', '/dashboard?view=referrals').catch((error) => this.logger.warn(`Referral deposit notification could not be delivered: ${error instanceof Error ? error.message : 'unknown error'}`));
+      }
+    }
     const reviewed = await this.transactions.findById(id).lean().exec();
     if (reviewed) {
       const decisionText = decision === 'approved' ? 'approved' : 'rejected';

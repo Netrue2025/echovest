@@ -40,7 +40,7 @@ export function WithdrawalView() {
   const available = wallet === "trading" ? summary?.balances.availableMaturedPrincipal ?? 0 : wallet === "referral" ? summary?.balances.availableReferral ?? 0 : summary?.balances.availableProfit ?? 0;
   const numericAmount = Number(amount);
   const feeDiscount = summary?.membership?.withdrawalFeeDiscountPercent ?? 0;
-  const effectiveFeePercent = (settings?.withdrawalFeePercent ?? 0) * (1 - feeDiscount / 100);
+  const effectiveFeePercent = Math.max(0, (settings?.withdrawalFeePercent ?? 0) - feeDiscount);
   const withdrawalFee = Math.round((numericAmount * effectiveFeePercent / 100 + (settings?.withdrawalFeeFixed ?? 0)) * 1e8) / 1e8;
   const payoutAmount = Math.max(0, Math.round((numericAmount - withdrawalFee) * 1e8) / 1e8);
   const withinWithdrawalWindow = withdrawalWindowOpen(settings, scheduleTime);

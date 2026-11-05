@@ -13,14 +13,8 @@ The app is a Next.js App Router site and deploys to Vercel without extra configu
 
 Referral links use `NEXT_PUBLIC_SITE_URL` as their base URL. Set it in the frontend deployment to `https://echovest.app` and rebuild/redeploy the frontend. If it is unset in production, the app defaults to `https://echovest.app`. Local development can set it to the local frontend origin when testing referral links.
 
-## Separate admin PWA on Railway
+## Separate admin PWA on the Railway hostname
 
-To install EchoVest Admin separately from the user PWA on Android, give the same frontend Railway service a distinct origin such as `admin.echovest.app`:
+The admin install link defaults to `https://echovest-production.up.railway.app/admin`, giving the admin PWA a separate origin and install identity from the user app on `echovest.app`. Both addresses must continue to route to the same current frontend deployment. Open `/admin` on `echovest.app` and choose **Open separate admin app**, then install from the Railway address. Set `NEXT_PUBLIC_ADMIN_PWA_URL` in the frontend Railway service only if you later choose a different admin origin; it is a build-time override.
 
-1. In the frontend Railway service, open **Settings → Networking → Public Networking → + Custom Domain** and add `admin.echovest.app`.
-2. Add the CNAME and TXT records Railway displays to the DNS provider for `echovest.app`. Wait for Railway to verify the domain and issue HTTPS.
-3. In the frontend Railway service variables, set `NEXT_PUBLIC_ADMIN_PWA_URL=https://admin.echovest.app/admin`, then redeploy the frontend. This is a build-time variable.
-4. In the backend service variables, append `https://admin.echovest.app` to the existing comma-separated `FRONTEND_URL` value. Keep the existing frontend origin in the list, then redeploy the backend.
-5. Open `/admin` on the existing site and select **Open separate admin app**. On the new host, use Chrome's menu → **Install app**.
-
-The custom domain points to the same frontend service and code; it does not require another app deployment or database. The separate origin prevents the installed user app from claiming the admin app's install identity. Samsung Internet may still reject WebAPK installation on some versions; Chrome is the supported fallback.
+For admin login, API requests, and push subscription to work from both origins, include both exact origins in the backend Railway service's comma-separated `FRONTEND_URL` value: `https://echovest.app,https://echovest-production.up.railway.app`. Preserve any other required origins and redeploy the backend. Keep the existing VAPID public/private keys and valid `VAPID_SUBJECT` configured on the backend. Push subscriptions are stored by browser endpoint, so admin devices must enable alerts while signed in on the admin-origin PWA; alerts then deliver through the existing backend VAPID configuration. Push delivery requires HTTPS and browser permission. Chrome is the supported Android installation path; Samsung Internet may reject installation on some versions.
