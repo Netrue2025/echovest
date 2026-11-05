@@ -30,7 +30,7 @@ export class FinanceService {
   }
   async summary(userId: string) {
     await this.settleMaturedCapital(userId);
-    const [user, transactions, positions, settings, approvedProfitWithdrawals] = await Promise.all([this.users.findById(userId).select('tradingBalance maturedPrincipalBalance lockedCapitalLots referralBalance pendingTradingWithdrawals pendingMaturedWithdrawals pendingReferralWithdrawals').lean().exec(), this.listUserTransactions(userId), this.tradePositions.find({ userId: new Types.ObjectId(userId) }).select('signalId principal joinedAt stoppedAt claimedInterest principalReturnedAt status').lean().exec(), this.config(), this.transactions.find({ userId: new Types.ObjectId(userId), type: 'withdrawal', sourceType: 'trade_interest', status: 'approved' }).select('amount').lean().exec()]);
+    const [user, transactions, positions, settings, approvedProfitWithdrawals] = await Promise.all([this.users.findById(userId).select('tradingBalance maturedPrincipalBalance lockedCapitalLots referralBalance pendingTradingWithdrawals pendingMaturedWithdrawals pendingReferralWithdrawals membershipLevel').lean().exec(), this.listUserTransactions(userId), this.tradePositions.find({ userId: new Types.ObjectId(userId) }).select('signalId principal joinedAt stoppedAt claimedInterest principalReturnedAt status').lean().exec(), this.config(), this.transactions.find({ userId: new Types.ObjectId(userId), type: 'withdrawal', sourceType: 'trade_interest', status: 'approved' }).select('amount').lean().exec()]);
     if (!user) throw new NotFoundException('Account not found.');
     const trading = user.tradingBalance ?? 0, referral = user.referralBalance ?? 0;
     let maturedPrincipal = user.maturedPrincipalBalance ?? 0;
@@ -71,7 +71,8 @@ export class FinanceService {
     const lockedCapitalLots = user.lockedCapitalLots ?? [];
     const lockedCapital = lockedCapitalLots.reduce((total, lot) => total + lot.amount, 0);
     const nextCapitalUnlockAt = lockedCapitalLots.reduce<Date | null>((earliest, lot) => !earliest || new Date(lot.unlockAt).getTime() < earliest.getTime() ? new Date(lot.unlockAt) : earliest, null);
-    return { balances: { trading, referral, availableTrading: Math.max(0, trading - (user.pendingTradingWithdrawals ?? 0) - pendingMatured), maturedPrincipal, availableMaturedPrincipal: Math.max(0, maturedPrincipal - pendingMatured), lockedCapital, nextCapitalUnlockAt, capitalLockDays: settings?.capitalLockDays ?? 60, availableReferral: Math.max(0, referral - (user.pendingReferralWithdrawals ?? 0)), totalProfitEarned, availableProfit: availableProfitUnits / 100_000_000 }, transactions };
+    const membershipBenefit = await this.referrals.membershipBenefits(user.membershipLevel);
+    return { membership: { level: membershipBenefit.level, withdrawalReviewHours: membershipBenefit.withdrawalReviewHours, withdrawalFeeDiscountPercent: membershipBenefit.withdrawalFeeDiscountPercent }, balances: { trading, referral, availableTrading: Math.max(0, trading - (user.pendingTradingWithdrawals ?? 0) - pendingMatured), maturedPrincipal, availableMaturedPrincipal: Math.max(0, maturedPrincipal - pendingMatured), lockedCapital, nextCapitalUnlockAt, capitalLockDays: settings?.capitalLockDays ?? 60, availableReferral: Math.max(0, referral - (user.pendingReferralWithdrawals ?? 0)), totalProfitEarned, availableProfit: availableProfitUnits / 100_000_000 }, transactions };
   }
   async settleMaturedCapital(userId?: string) {
     const now = new Date();
@@ -113,7 +114,7 @@ export class FinanceService {
   }
   async requestWithdrawal(userId: string, input: { amount: number; balanceType: 'trading' | 'referral'; destinationAddress: string; network: string; pin?: string; verificationToken?: string }) {
     await this.settleMaturedCapital(userId);
-    const [s, user] = await Promise.all([this.config(), this.users.findById(userId).select('+role isDisabled withdrawalsDisabled tradingBalance maturedPrincipalBalance referralBalance pendingTradingWithdrawals pendingMaturedWithdrawals pendingReferralWithdrawals').lean().exec()]);
+    const [s, user] = await Promise.all([this.config(), this.users.findById(userId).select('+role isDisabled withdrawalsDisabled tradingBalance maturedPrincipalBalance referralBalance pendingTradingWithdrawals pendingMaturedWithdrawals pendingReferralWithdrawals membershipLevel').lean().exec()]);
     if (!user || user.isDisabled || user.withdrawalsDisabled) throw new ForbiddenException('Withdrawals are disabled for this account.');
     assertWithdrawalWindow(s ?? {}, new Date());
     if (input.amount < (s?.minimumWithdrawal ?? 0)) throw new BadRequestException(`The minimum withdrawal is ${s?.minimumWithdrawal ?? 0} USD.`);
@@ -130,7 +131,9 @@ export class FinanceService {
     const held = await this.users.findOneAndUpdate({ _id: userId, isDisabled: { $ne: true }, withdrawalsDisabled: { $ne: true }, $expr: availability }, { $inc: { [pendingField]: input.amount } }, { new: true }).lean().exec();
     if (!held) throw new BadRequestException('The amount exceeds your available balance.');
     try {
-      const withdrawalFee = Math.round((input.amount * (s?.withdrawalFeePercent ?? 0) / 100 + (s?.withdrawalFeeFixed ?? 0)) * 1e8) / 1e8;
+      const membershipBenefit = await this.referrals.membershipBenefits(user.membershipLevel);
+      const effectiveFeePercent = (s?.withdrawalFeePercent ?? 0) * (1 - membershipBenefit.withdrawalFeeDiscountPercent / 100);
+      const withdrawalFee = Math.round((input.amount * effectiveFeePercent / 100 + (s?.withdrawalFeeFixed ?? 0)) * 1e8) / 1e8;
       const payoutAmount = Math.round((input.amount - withdrawalFee) * 1e8) / 1e8;
       if (payoutAmount <= 0) throw new BadRequestException('The withdrawal charge must be less than the withdrawal amount.');
       const created = await this.transactions.create({ userId: new Types.ObjectId(userId), type: 'withdrawal', amount: input.amount, withdrawalFee, payoutAmount, balanceType: input.balanceType, status: 'pending_review', destinationAddress: input.destinationAddress.trim(), network: input.network.trim(), maturedPrincipalWithdrawal: isMaturedPrincipal });
@@ -143,9 +146,30 @@ export class FinanceService {
     const filter = { ...(type ? { type } : {}), ...(includeArchived ? { archivedAt: { $exists: true } } : { archivedAt: { $exists: false } }) };
     const items = await this.transactions.find(filter).sort({ createdAt: -1 }).limit(500).lean().exec();
     const ids = [...new Set(items.map((item) => String(item.userId)))];
-    const users = await this.users.find({ _id: { $in: ids } }).select('fullName email').lean().exec();
+    const [users, membershipSettings] = await Promise.all([
+      this.users.find({ _id: { $in: ids } }).select('fullName email membershipLevel').lean().exec(),
+      type === 'withdrawal' ? this.referrals.getSettings() : Promise.resolve(null),
+    ]);
     const map = new Map(users.map((u) => [String(u._id), u]));
-    return items.map((item) => ({ ...item, id: String(item._id), user: map.get(String(item.userId)) ?? null }));
+    const reviewHours = new Map<string, number>((membershipSettings?.levels ?? []).map((row) => [row.level, row.withdrawalReviewHours] as const));
+    const result = items.map((item) => {
+      const user = map.get(String(item.userId));
+      const level = user?.membershipLevel ?? 'Blue';
+      return { ...item, id: String(item._id), user: user ? { ...user, withdrawalReviewHours: reviewHours.get(level) ?? 24 } : null };
+    });
+    if (type === 'withdrawal') result.sort((a, b) => {
+      const aPending = a.status === 'pending_review' ? 1 : 0, bPending = b.status === 'pending_review' ? 1 : 0;
+      if (aPending !== bPending) return bPending - aPending;
+      if (aPending && bPending) {
+        const aTarget = a.user?.withdrawalReviewHours || Number.MAX_SAFE_INTEGER;
+        const bTarget = b.user?.withdrawalReviewHours || Number.MAX_SAFE_INTEGER;
+        const priority = aTarget - bTarget;
+        if (priority) return priority;
+        return new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime();
+      }
+      return new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime();
+    });
+    return result;
   }
   async archiveTransaction(id: string, type: 'deposit' | 'withdrawal', reason: string, actor: Actor) {
     const session = await this.transactions.db.startSession();

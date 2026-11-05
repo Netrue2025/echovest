@@ -228,9 +228,14 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
         if (amount < 0.01 || amount > available + 1e-8) throw new BadRequestException(`Available accrued interest is ${available.toFixed(8)} USD.`);
         const updatedPosition = await this.positions.findOneAndUpdate({ _id: positionId, claimedInterest: position.claimedInterest }, { $inc: { claimedInterest: amount } }, { new: true, session }).exec();
         if (!updatedPosition) throw new ConflictException('Interest balance changed. Refresh and try again.');
-        const user = await this.users.findOne({ _id: userId, role: 'user', isDisabled: { $ne: true }, withdrawalsDisabled: { $ne: true } }).session(session).select('_id').lean().exec();
+        const user = await this.users.findOne({ _id: userId, role: 'user', isDisabled: { $ne: true }, withdrawalsDisabled: { $ne: true } }).session(session).select('_id membershipLevel').lean().exec();
         if (!user) throw new NotFoundException('Account not found or withdrawals are disabled.');
-        const docs = await this.transactions.create([{ userId: new Types.ObjectId(userId), type: 'withdrawal', amount, balanceType: 'trading', status: 'pending_review', destinationAddress: destinationAddress.trim(), network: network.trim(), sourceType: 'trade_interest', profitLedger: true, tradePositionId: new Types.ObjectId(positionId) }], { session });
+        const membershipBenefit = await this.referrals.membershipBenefits(user.membershipLevel, session);
+        const effectiveFeePercent = (withdrawalSettings?.withdrawalFeePercent ?? 0) * (1 - membershipBenefit.withdrawalFeeDiscountPercent / 100);
+        const withdrawalFee = Math.round((amount * effectiveFeePercent / 100 + (withdrawalSettings?.withdrawalFeeFixed ?? 0)) * 1e8) / 1e8;
+        const payoutAmount = Math.round((amount - withdrawalFee) * 1e8) / 1e8;
+        if (payoutAmount <= 0) throw new BadRequestException('The withdrawal charge must be less than the withdrawal amount.');
+        const docs = await this.transactions.create([{ userId: new Types.ObjectId(userId), type: 'withdrawal', amount, withdrawalFee, payoutAmount, balanceType: 'trading', status: 'pending_review', destinationAddress: destinationAddress.trim(), network: network.trim(), sourceType: 'trade_interest', profitLedger: true, tradePositionId: new Types.ObjectId(positionId) }], { session });
         createdTransaction = docs[0];
         referralPayouts = await this.referrals.accrueTrading(userId, String(createdTransaction._id), amount, session);
         await this.writeAudit(userId, 'system', 'trades.interest.withdrawal_requested', String(createdTransaction._id), signal.pair, `${amount} USD accrued interest requested; pending admin withdrawal review.`, session);
@@ -248,7 +253,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
     let referralPayouts: Array<{ userId: string; amount: number; tier: number }> = [];
     try {
       await session.withTransaction(async () => {
-        const user = await this.users.findOne({ _id: userId, role: 'user', isDisabled: { $ne: true }, withdrawalsDisabled: { $ne: true } }).session(session).select('_id').lean().exec();
+        const user = await this.users.findOne({ _id: userId, role: 'user', isDisabled: { $ne: true }, withdrawalsDisabled: { $ne: true } }).session(session).select('_id membershipLevel').lean().exec();
         if (!user) throw new NotFoundException('Account not found or withdrawals are disabled.');
         const activePosition = await this.positions.exists({ userId: new Types.ObjectId(userId), status: 'active' }).session(session).exec();
         if (activePosition) throw new BadRequestException('Stop all active copy trades before requesting a profit withdrawal.');
@@ -288,7 +293,9 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
           throw new BadRequestException(`Available profit from closed trades is ${(availableUnits / TRADE_AMOUNT_SCALE).toFixed(8)} USD. Refresh the balance and try again.`);
         }
 
-        const withdrawalFee = Math.round((amount * (settings?.withdrawalFeePercent ?? 0) / 100 + (settings?.withdrawalFeeFixed ?? 0)) * 1e8) / 1e8;
+        const membershipBenefit = await this.referrals.membershipBenefits(user.membershipLevel, session);
+        const effectiveFeePercent = (settings?.withdrawalFeePercent ?? 0) * (1 - membershipBenefit.withdrawalFeeDiscountPercent / 100);
+        const withdrawalFee = Math.round((amount * effectiveFeePercent / 100 + (settings?.withdrawalFeeFixed ?? 0)) * 1e8) / 1e8;
         const payoutAmount = Math.round((amount - withdrawalFee) * 1e8) / 1e8;
         if (payoutAmount <= 0) throw new BadRequestException('The withdrawal charge must be less than the withdrawal amount.');
         const docs = await this.transactions.create([{ userId: new Types.ObjectId(userId), type: 'withdrawal', amount, withdrawalFee, payoutAmount, balanceType: 'trading', status: 'pending_review', destinationAddress: destinationAddress.trim(), network: network.trim(), sourceType: 'trade_interest', profitLedger: true, profitPositionAllocations: allocations }], { session });

@@ -4,13 +4,22 @@ import { Types } from 'mongoose';
 export const MEMBERSHIP_LEVELS = ['Blue', 'Elite', 'Silver', 'Gold', 'Platinum'] as const;
 export type MembershipLevel = typeof MEMBERSHIP_LEVELS[number];
 export type ReferralRate = { level: MembershipLevel; tier1: number; tier2: number; tier3: number };
+export type MembershipTier = {
+  level: MembershipLevel;
+  requiredDirectReferrals: number;
+  requiredTradingBalance: number;
+  withdrawalReviewHours: number;
+  withdrawalFeeDiscountPercent: number;
+};
 
 export const DEFAULT_REFERRAL_RATES: ReferralRate[] = MEMBERSHIP_LEVELS.map((level) => ({ level, tier1: 0, tier2: 0, tier3: 0 }));
+export const DEFAULT_MEMBERSHIP_TIERS: MembershipTier[] = MEMBERSHIP_LEVELS.map((level) => ({ level, requiredDirectReferrals: 0, requiredTradingBalance: 0, withdrawalReviewHours: 24, withdrawalFeeDiscountPercent: 0 }));
 
 @Schema({ collection: 'referral_settings' })
 export class ReferralSettings {
   @Prop({ required: true, unique: true, default: 'platform' }) key!: string;
   @Prop({ type: [{ _id: false, level: String, tier1: Number, tier2: Number, tier3: Number }], default: [] }) rates!: ReferralRate[];
+  @Prop({ type: [{ _id: false, level: String, requiredDirectReferrals: Number, requiredTradingBalance: Number, withdrawalReviewHours: Number, withdrawalFeeDiscountPercent: Number }], default: [] }) levels!: MembershipTier[];
 }
 export const ReferralSettingsSchema = SchemaFactory.createForClass(ReferralSettings);
 

@@ -104,7 +104,7 @@ function Overview({ email, name, finance, onBalanceUpdated }: { email: string; n
       <article className="dash-balance-card"><div className="dash-balance-top"><span>Investment balance <BalanceLockInfo days={finance.balances.capitalLockDays} /></span><Wallet size={19} /></div><strong><BalanceAmount amount={finance.balances.availableTrading} /></strong><div className="dash-balance-footer"><span>Referral {money(finance.balances.availableReferral)}</span><span>Matured {money(finance.balances.availableMaturedPrincipal ?? 0)}</span></div><div className="dash-balance-actions"><a href="/dashboard?view=deposit"><Plus size={14} /> Deposit</a><a href={"/dashboard?view=withdraw&wallet=trading"}><ArrowUpRight size={14} /> Withdraw</a></div></article>
       <article className="dash-stat-card dash-balance-stat"><span className="dash-stat-icon teal"><Users size={19} /></span><small>Referral earnings</small><strong><BalanceAmount amount={finance.balances.availableReferral} /></strong><span className="dash-stat-caption">Available referral balance</span><a href="/dashboard?view=referrals">View referrals <ArrowRight size={14} /></a></article>
       <a className="dash-stat-card dash-balance-stat dash-balance-stat-link" href="/dashboard?view=withdraw&wallet=profit#profit-withdraw-section"><span className="dash-stat-icon blue"><Zap size={19} /></span><small>Total profit earned</small><strong><BalanceAmount amount={finance.balances.availableProfit ?? 0} decimals={2} /></strong><span className="dash-stat-caption">Available to withdraw</span><span className="dash-stat-link-label">Withdraw profit <ArrowRight size={14} /></span></a>
-      <article className="dash-stat-card"><span className="dash-stat-icon violet"><Award size={19} /></span><small>Membership level</small><strong>Blue</strong><span className="dash-stat-caption">Your current level</span><a href="/dashboard?view=levels">View level <ArrowRight size={14} /></a></article>
+      <article className="dash-stat-card"><span className="dash-stat-icon violet"><Award size={19} /></span><small>Membership level</small><strong>{finance.membership?.level ?? "Blue"}</strong><span className="dash-stat-caption">Your current level</span><a href="/dashboard?view=levels">View level <ArrowRight size={14} /></a></article>
     </section>
 
     <TradeSessionCard />
@@ -124,7 +124,7 @@ function Overview({ email, name, finance, onBalanceUpdated }: { email: string; n
 function MobileHome({ email, name, finance, onBalanceUpdated }: { email: string; name: string; finance: FinanceSummary; onBalanceUpdated: () => void }) {
   const firstName = name.split(/\s+/)[0] || email.split("@")[0]?.split(/[._-]/)[0] || "there";
   return <section className="dash-mobile-home" aria-label="Home overview">
-    <header className="dash-mobile-greeting"><div><p>Hello, <strong>{firstName}</strong> <span aria-hidden="true">{"\u{1F44B}"}</span></p><small>Welcome back!</small></div><div className="dash-mobile-greeting-actions"><a href="/dashboard?view=levels" className="dash-mobile-level"><Award size={14} /> Blue</a><NotificationBell className="dash-mobile-notification" size={22} /></div></header>
+    <header className="dash-mobile-greeting"><div><p>Hello, <strong>{firstName}</strong> <span aria-hidden="true">{"\u{1F44B}"}</span></p><small>Welcome back!</small></div><div className="dash-mobile-greeting-actions"><a href="/dashboard?view=levels" className="dash-mobile-level"><Award size={14} /> {finance.membership?.level ?? "Blue"}</a><NotificationBell className="dash-mobile-notification" size={22} /></div></header>
       <article className="dash-mobile-balance">
       <div className="dash-mobile-balance-head"><span>Investment balance <BalanceLockInfo days={finance.balances.capitalLockDays} /></span><Wallet size={19} /></div>
       <strong><BalanceAmount amount={finance.balances.availableTrading} /></strong>
@@ -238,11 +238,11 @@ function ReferralsView({ balance }: { balance: number }) {
 
 function LevelsView() {
   const levels = [
-    { name: "Blue", icon: ShieldCheck, tone: "blue", qualification: "Your starting membership level.", benefit: "Base access to copy signals and referrals." },
-    { name: "Elite", icon: Medal, tone: "elite", qualification: "Meet the qualifying deposit or referral threshold.", benefit: "A slightly improved referral commission tier." },
-    { name: "Silver", icon: Award, tone: "silver", qualification: "Meet a higher qualifying deposit or team-volume threshold.", benefit: "Access to more signal categories." },
-    { name: "Gold", icon: Crown, tone: "gold", qualification: "Meet the Gold deposit or team-volume threshold.", benefit: "An increased commission tier and faster withdrawal review." },
-    { name: "Platinum", icon: Gem, tone: "platinum", qualification: "Meet the top-tier deposit or team-volume threshold.", benefit: "The maximum commission tier and dedicated support." },
+    { name: "Blue", icon: ShieldCheck, tone: "blue" },
+    { name: "Elite", icon: Medal, tone: "elite" },
+    { name: "Silver", icon: Award, tone: "silver" },
+    { name: "Gold", icon: Crown, tone: "gold" },
+    { name: "Platinum", icon: Gem, tone: "platinum" },
   ];
   const [overview, setOverview] = useState<ReferralOverview | null>(null);
   const [selected, setSelected] = useState("Elite");
@@ -264,17 +264,26 @@ function LevelsView() {
   const CurrentIcon = current.icon;
   const SelectedIcon = selectedLevel.icon;
   const memberCount = overview ? overview.counts.tier1 + overview.counts.tier2 + overview.counts.tier3 : null;
+  const tierSettings = overview?.membershipLevels.find((item) => item.level === selectedLevel.name);
+  const tierRates = overview?.membershipRates.find((item) => item.level === selectedLevel.name);
+  const directCount = overview?.counts.tier1 ?? 0;
+  const tradingBalance = overview?.lockedTradingBalance ?? 0;
+  const directMet = Boolean(tierSettings && tierSettings.requiredDirectReferrals > 0 && directCount >= tierSettings.requiredDirectReferrals);
+  const balanceMet = Boolean(tierSettings && tierSettings.requiredTradingBalance > 0 && tradingBalance >= tierSettings.requiredTradingBalance);
+  const hasQualification = Boolean(tierSettings && (tierSettings.requiredDirectReferrals > 0 || tierSettings.requiredTradingBalance > 0));
+  const reviewTarget = tierSettings?.withdrawalReviewHours ?? 0;
+  const feeDiscount = tierSettings?.withdrawalFeeDiscountPercent ?? 0;
 
   return <>
-    <PageHeading title="Membership level" subtitle="Explore each level and see the documented ways to qualify." />
+    <PageHeading title="Membership level" subtitle="See your progress, upgrade requirements, and benefits for every level." />
     <article className={`dash-level-card dash-membership-current ${current.tone}`}>
       <div className="dash-level-emblem"><CurrentIcon size={29} /></div>
-      <div><span className="dash-overline">YOUR MEMBERSHIP</span><h2>{overview ? current.name : "Loading level…"}</h2><p>{current.name === "Blue" ? "Your starting level. Choose a higher tier to see its benefits and qualification routes." : `${current.name} membership is active on your account.`}</p></div>
+      <div><span className="dash-overline">YOUR MEMBERSHIP</span><h2>{overview ? current.name : "Loading level…"}</h2><p>{overview ? `${directCount} direct referrals · ${money(tradingBalance)} locked trading balance` : "Loading your membership progress…"}</p></div>
       <span className="dash-level-chip">Current level</span>
     </article>
 
     <article className="dash-panel dash-full-panel dash-membership-panel">
-      <div className="dash-panel-heading"><div><h2>Explore membership levels</h2><p>Select a level to see what it offers and how the PRD says users can qualify.</p></div><span className="dash-membership-network"><Users size={15}/>{memberCount === null ? "Network loading" : `${memberCount} in your network`}</span></div>
+      <div className="dash-panel-heading"><div><h2>Membership step guide</h2><p>Each higher level unlocks when either its direct referral target or investment balance target is met.</p></div><span className="dash-membership-network"><Users size={15}/>{memberCount === null ? "Network loading" : `${memberCount} in your network`}</span></div>
       <div className="dash-membership-levels" role="group" aria-label="Choose a membership level">
         {levels.map(({ name, icon: Icon, tone }, index) => {
           const reached = index <= currentIndex;
@@ -284,17 +293,19 @@ function LevelsView() {
         })}
       </div>
       <section className={`dash-level-guidance ${selectedLevel.tone}`} aria-live="polite">
-        <div className="dash-level-guidance-head"><span className="dash-level-guidance-icon"><SelectedIcon size={24}/></span><div><span className="dash-overline">{isAchieved ? (selectedIndex === currentIndex ? "CURRENT MEMBERSHIP" : "LEVEL ALREADY ACHIEVED") : "LEVEL DETAILS"}</span><h3>{selectedLevel.name}</h3></div><span className="dash-level-guidance-benefit">{selectedLevel.benefit}</span></div>
-        {isAchieved ? <p className="dash-membership-achieved"><Check size={17}/>{selectedIndex === currentIndex ? "This level is active on your account." : `You have already reached ${selectedLevel.name}. Select a higher level to explore the next step.`}</p> : <>
-          <p className="dash-level-qualification">{selectedLevel.qualification}</p>
-          <div className="dash-upgrade-routes">
-            <div className="dash-upgrade-route"><span className="dash-upgrade-route-number">01</span><div><h4>Grow through your referral team</h4><p>Invite people with your referral link and maintain the trading activity required by the programme. Your network currently has {overview ? `${overview.counts.tier1} direct, ${overview.counts.tier2} second-tier and ${overview.counts.tier3} third-tier members` : "a loading member count"}; the app does not yet calculate qualification progress.</p><a href="/dashboard?view=referrals">View your referrals <ArrowRight size={15}/></a></div></div>
-            <div className="dash-upgrade-route"><span className="dash-upgrade-route-number">02</span><div><h4>Ask about a qualifying buy-in</h4><p>The PRD also allows a qualifying lump-sum buy-in. Confirm the level amount and eligibility with support before depositing; a normal deposit does not automatically upgrade your membership.</p><a href="/dashboard?view=help">Ask support about eligibility <ArrowRight size={15}/></a></div></div>
-          </div>
-          <p className="dash-membership-retention"><Sparkles size={15}/>The PRD says a qualifying buy-in is permanent. Organic progression can depend on continued trading activity.</p>
+        <div className="dash-level-guidance-head"><span className="dash-level-guidance-icon"><SelectedIcon size={24}/></span><div><span className="dash-overline">{isAchieved ? (selectedIndex === currentIndex ? "CURRENT MEMBERSHIP" : "LEVEL ALREADY ACHIEVED") : "LEVEL DETAILS"}</span><h3>{selectedLevel.name}</h3></div><span className="dash-level-guidance-benefit">{tierSettings ? `${tierRates?.tier1 ?? 0}% / ${tierRates?.tier2 ?? 0}% / ${tierRates?.tier3 ?? 0}% referral commission` : "Loading tier benefits…"}</span></div>
+        {isAchieved && <p className="dash-membership-achieved"><Check size={17}/>{selectedIndex === currentIndex ? "This level is active on your account." : `You have already reached ${selectedLevel.name}. Select a higher level to explore the next step.`}</p>}
+        {!isAchieved && <>
+          <p className="dash-level-qualification">Meet either requirement below to unlock {selectedLevel.name}.</p>
+          {!hasQualification ? <p className="dash-membership-unconfigured">The upgrade requirements for this level have not been configured yet. Check back after the programme settings are published.</p> : <div className="dash-upgrade-routes">
+            {tierSettings?.requiredDirectReferrals ? <div className={`dash-upgrade-route ${directMet ? "met" : ""}`}><span className="dash-upgrade-route-number">01</span><div><h4>Direct referrals</h4><p>{directCount} of {tierSettings.requiredDirectReferrals} direct referrals. Invite people with your referral link; only direct sign-ups count for this requirement.</p><a href="/dashboard?view=referrals">View your referrals <ArrowRight size={15}/></a></div></div> : null}
+            {tierSettings?.requiredTradingBalance ? <div className={`dash-upgrade-route ${balanceMet ? "met" : ""}`}><span className="dash-upgrade-route-number">02</span><div><h4>Locked trading balance</h4><p>{money(tradingBalance)} of {money(tierSettings.requiredTradingBalance)} in qualifying locked trading capital.</p><a href="/dashboard?view=wallet">View your wallet <ArrowRight size={15}/></a></div></div> : null}
+          </div>}
+          {hasQualification && (directMet || balanceMet) && <p className="dash-membership-achieved"><Check size={17}/>You meet a qualification for this level. Your membership will update as you progress through the levels.</p>}
         </>}
+        <div className="dash-membership-benefits"><div><strong>Withdrawal review</strong><span>{reviewTarget > 0 ? `Target: within ${reviewTarget} hour${reviewTarget === 1 ? "" : "s"}` : "Standard review queue"}</span></div><div><strong>Referral commission</strong><span>{tierRates ? `${tierRates.tier1}% direct · ${tierRates.tier2}% second tier · ${tierRates.tier3}% third tier` : "Rates loading"}</span></div><div><strong>Withdrawal fee</strong><span>{feeDiscount > 0 ? `${feeDiscount}% discount on the percentage charge` : "Standard platform charge"}</span></div></div>
       </section>
-      <div className="dash-disclosure dash-membership-disclosure"><CircleHelp size={17}/><span>Exact deposit and team-volume thresholds, commission percentages, and automatic progress tracking are not configured yet. We show the documented routes without estimating amounts or promising an upgrade.</span></div>
+      <div className="dash-disclosure dash-membership-disclosure"><CircleHelp size={17}/><span>Membership upgrades are automatic when either configured requirement is met. Withdrawal review hours are service targets; actual processing depends on review. Fee discounts apply to the percentage charge, while any fixed platform fee remains.</span></div>
       {error && <p className="dash-deposit-helper" role="status">Your membership level could not be loaded, so Blue is shown as the default. {error}</p>}
     </article>
   </>;

@@ -9,11 +9,15 @@ function apiBase() {
 }
 
 export type ReferralMember = { id: string; fullName: string; tier: number; earned: number; joinedAt?: string };
+export type MembershipTier = { level: string; requiredDirectReferrals: number; requiredTradingBalance: number; withdrawalReviewHours: number; withdrawalFeeDiscountPercent: number };
 export type ReferralOverview = {
   referralCode: string;
   membershipLevel: string;
   referralBalanceEarned: number;
   rates: { level: string; tier1: number; tier2: number; tier3: number };
+  membershipLevels: MembershipTier[];
+  membershipRates: { level: string; tier1: number; tier2: number; tier3: number }[];
+  lockedTradingBalance: number;
   counts: { tier1: number; tier2: number; tier3: number };
   downliners: ReferralMember[];
 };
