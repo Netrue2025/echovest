@@ -9,6 +9,10 @@ npm run dev
 
 The app is a Next.js App Router site and deploys to Vercel without extra configuration. Set `LEADS_WEBHOOK_URL` to forward validated download leads; if it is omitted, leads are only logged by the route handler. Edit download URLs, APK metadata, version, and feature flags in `config/site.ts`.
 
+## Canonical public links
+
+Referral links use `NEXT_PUBLIC_SITE_URL` as their base URL. Set it in the frontend deployment to `https://echovest.app` and rebuild/redeploy the frontend. If it is unset in production, the app defaults to `https://echovest.app`. Local development can set it to the local frontend origin when testing referral links.
+
 ## Separate admin PWA on Railway
 
 To install EchoVest Admin separately from the user PWA on Android, give the same frontend Railway service a distinct origin such as `admin.echovest.app`:
