@@ -14,7 +14,7 @@ import { User } from '../users/user.schema.js';
 import { FinanceTransaction } from '../finance/finance.schema.js';
 import { ProviderDeposit } from '../deposits/provider-deposit.schema.js';
 
-export type AdminActor = { id: string; email: string };
+export type AdminActor = { id: string; email: string; isSuperAdmin?: boolean };
 
 @Injectable()
 export class AdminService implements OnModuleInit {
@@ -199,12 +199,13 @@ export class AdminService implements OnModuleInit {
     return events.map((event) => ({ id: String(event._id), actorId: event.actorId, actorEmail: event.actorEmail, action: event.action, targetType: event.targetType, targetId: event.targetId, targetLabel: event.targetLabel, detail: event.detail, createdAt: event.createdAt }));
   }
   async permanentlyDeleteAuditEvents(ids: string[], reason: string, actor: AdminActor) {
+    if (!actor.isSuperAdmin) throw new ForbiddenException('Only the super admin can permanently delete audit history.');
     const session = await this.audit.db.startSession();
     let deletedCount = 0;
     try {
       await session.withTransaction(async () => {
         const objectIds = ids.map((id) => new Types.ObjectId(id));
-        const protectedActions = ['audit.records_deleted', 'finance.deposit.txid_tombstone', 'deposit.provider.txid_tombstone'];
+        const protectedActions = ['finance.deposit.txid_tombstone', 'deposit.provider.txid_tombstone'];
         const filter = { _id: { $in: objectIds }, action: { $nin: protectedActions } };
         const records = await this.audit.find(filter).select('_id action targetType targetId').session(session).lean().exec();
         if (!records.length) return;
@@ -215,6 +216,20 @@ export class AdminService implements OnModuleInit {
       });
     } finally { await session.endSession(); }
     return { deletedCount };
+  }
+  async permanentlyDeleteAllAuditEvents(reason: string, actor: AdminActor) {
+    if (!actor.isSuperAdmin) throw new ForbiddenException('Only the super admin can permanently delete audit history.');
+    const session = await this.audit.db.startSession();
+    let deletedCount = 0;
+    try {
+      await session.withTransaction(async () => {
+        const filter = { action: { $nin: ['finance.deposit.txid_tombstone', 'deposit.provider.txid_tombstone'] } };
+        const result = await this.audit.collection.deleteMany(filter, { session });
+        deletedCount = result.deletedCount ?? 0;
+        await this.audit.create([{ actorId: actor.id, actorEmail: actor.email, action: 'audit.records_deleted', targetType: 'admin_audit', targetId: 'all_deletable', targetLabel: 'All deletable audit history', detail: `${deletedCount} audit record(s) permanently deleted. Reason: ${reason.trim()}. Financial replay-prevention tombstones were retained.` }], { session });
+      });
+    } finally { await session.endSession(); }
+    return { deletedCount, protectedCount: await this.audit.countDocuments({ action: { $in: ['finance.deposit.txid_tombstone', 'deposit.provider.txid_tombstone'] } }).exec() };
   }
   private recordAudit(actor: AdminActor, action: string, targetType: string, targetId: string, targetLabel: string, detail: string) {
     return this.audit.create({ actorId: actor.id, actorEmail: actor.email, action, targetType, targetId, targetLabel, detail });

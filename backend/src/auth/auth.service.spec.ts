@@ -19,6 +19,7 @@ describe('AuthService', () => {
   };
   const sessions = { create: vi.fn(async () => ({ token: 'raw-session-token', expiresAt: new Date(Date.now() + 1000) })) };
   const email = { sendVerificationCode: vi.fn(async (_address: string, _name: string, code: string) => { sentCode = code; }) };
+  const notifications = { notifyAdmins: vi.fn(async () => ({ sent: 1 })) };
   const config = { getOrThrow: vi.fn(() => 'test-session-secret-long-enough-for-hmac') };
   const records = {
     findOneAndUpdate: vi.fn((_query: unknown, update: { $set: Omit<NonNullable<typeof verification>, '_id'> }) => { verification = { ...update.$set, _id: 'otp-1' }; return { exec: async () => verification }; }),
@@ -30,7 +31,7 @@ describe('AuthService', () => {
   beforeEach(() => {
     user = null; verification = null; sentCode = '';
     vi.clearAllMocks();
-    service = new AuthService(users as never, sessions as never, email as never, config as never, records as never, records as never);
+    service = new AuthService(users as never, sessions as never, email as never, notifications as never, config as never, records as never, records as never);
   });
 
   it('creates an unverified account, hashes its password, and emails an OTP', async () => {

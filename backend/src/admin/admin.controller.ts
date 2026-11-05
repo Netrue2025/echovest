@@ -6,10 +6,9 @@ import { SESSION_COOKIE, SessionsService } from '../sessions/sessions.service.js
 import { User } from '../users/user.schema.js';
 import { AdminAccessGuard, RequireAdminPermissions } from './admin-access.guard.js';
 import { AdminActor, AdminService } from './admin.service.js';
-import { AdjustUserBalanceDto, AdminSigninDto, CreateAdminDto, UpdateAdminPermissionsDto, UpdateAdminStatusDto, UpdateUserControlsDto, UpdateUserDto, UpdateUserPasswordDto, UpdateUserWithdrawalDto } from './admin.dto.js';
+import { AdjustUserBalanceDto, AdminSigninDto, ClearAdminAuditDto, CreateAdminDto, DeleteSelectedAuditDto, UpdateAdminPermissionsDto, UpdateAdminStatusDto, UpdateUserControlsDto, UpdateUserDto, UpdateUserPasswordDto, UpdateUserWithdrawalDto } from './admin.dto.js';
 import { ADMIN_PERMISSION_GROUPS } from './admin-permissions.js';
 import { SuperAdminGuard } from './super-admin.guard.js';
-import { ArchiveSelectedHistoryDto } from '../finance/finance.dto.js';
 
 const cookieOptions = (expires?: Date) => {
   const production = process.env.NODE_ENV === 'production';
@@ -21,7 +20,7 @@ const cookieOptions = (expires?: Date) => {
 @Controller('admin')
 export class AdminController {
   constructor(private readonly admin: AdminService, private readonly sessions: SessionsService) {}
-  private actor(request: Request & { user?: User }): AdminActor { return { id: String(request.user!._id), email: request.user!.email }; }
+  private actor(request: Request & { user?: User }): AdminActor { return { id: String(request.user!._id), email: request.user!.email, isSuperAdmin: request.user!.isSuperAdmin ?? false }; }
 
   @Post('auth/signin') @UseGuards(OriginGuard)
   async signin(@Body() body: AdminSigninDto, @Res({ passthrough: true }) response: Response) {
@@ -42,6 +41,7 @@ export class AdminController {
   @Get('permission-groups') @UseGuards(SessionGuard, AdminAccessGuard, SuperAdminGuard) permissionGroups() { return ADMIN_PERMISSION_GROUPS; }
   @Get('users') @UseGuards(SessionGuard, AdminAccessGuard) @RequireAdminPermissions('users.view') listUsers() { return this.admin.listUsers(); }
   @Get('overview') @UseGuards(SessionGuard, AdminAccessGuard) @RequireAdminPermissions('dashboard.view') overview(@Req() request: Request) { const raw = Number(request.query.days ?? 30); return this.admin.overview(raw); }
+  @Get('reports/overview') @UseGuards(SessionGuard, AdminAccessGuard) @RequireAdminPermissions('reports.view') reportsOverview(@Req() request: Request) { const raw = Number(request.query.days ?? 30); return this.admin.overview(raw); }
   @Get('user-balances') @UseGuards(SessionGuard, AdminAccessGuard) @RequireAdminPermissions('wallets.view') listUserBalances() { return this.admin.listUserBalances(); }
   @Patch('users/:id/balance') @UseGuards(OriginGuard, SessionGuard, AdminAccessGuard) @RequireAdminPermissions('wallets.adjust') adjustUserBalance(@Param('id') id: string, @Body() body: AdjustUserBalanceDto, @Req() request: Request & { user?: User }) { return this.admin.adjustUserBalance(id, body, this.actor(request)); }
   @Patch('users/:id') @UseGuards(OriginGuard, SessionGuard, AdminAccessGuard) @RequireAdminPermissions('users.manage') updateUser(@Param('id') id: string, @Body() body: UpdateUserDto, @Req() request: Request & { user?: User }) { return this.admin.updateUser(id, body, this.actor(request)); }
@@ -54,5 +54,6 @@ export class AdminController {
   @Patch('admins/:id/permissions') @UseGuards(OriginGuard, SessionGuard, AdminAccessGuard, SuperAdminGuard) updateAdminPermissions(@Param('id') id: string, @Body() body: UpdateAdminPermissionsDto, @Req() request: Request & { user?: User }) { return this.admin.updateAdminPermissions(id, body.permissions, this.actor(request)); }
   @Patch('admins/:id/status') @UseGuards(OriginGuard, SessionGuard, AdminAccessGuard, SuperAdminGuard) updateAdminStatus(@Param('id') id: string, @Body() body: UpdateAdminStatusDto, @Req() request: Request & { user?: User }) { return this.admin.updateAdminStatus(id, body.disabled, this.actor(request)); }
   @Get('audit') @UseGuards(SessionGuard, AdminAccessGuard) @RequireAdminPermissions('audit.view') listAudit() { return this.admin.listAudit(); }
-  @Delete('audit') @UseGuards(OriginGuard, SessionGuard, AdminAccessGuard) @RequireAdminPermissions('audit.manage') deleteAudit(@Body() body: ArchiveSelectedHistoryDto, @Req() request: Request & { user?: User }) { return this.admin.permanentlyDeleteAuditEvents(body.ids, body.reason, this.actor(request)); }
+  @Delete('audit/all') @UseGuards(OriginGuard, SessionGuard, AdminAccessGuard, SuperAdminGuard) deleteAllAudit(@Body() body: ClearAdminAuditDto, @Req() request: Request & { user?: User }) { return this.admin.permanentlyDeleteAllAuditEvents(body.reason, this.actor(request)); }
+  @Delete('audit') @UseGuards(OriginGuard, SessionGuard, AdminAccessGuard, SuperAdminGuard) deleteAudit(@Body() body: DeleteSelectedAuditDto, @Req() request: Request & { user?: User }) { return this.admin.permanentlyDeleteAuditEvents(body.ids, body.reason, this.actor(request)); }
 }

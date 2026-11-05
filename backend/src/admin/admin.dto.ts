@@ -1,4 +1,4 @@
-import { ArrayMaxSize, ArrayUnique, IsArray, IsBoolean, IsEmail, IsIn, IsOptional, IsString, IsNumber, Min, Max, MaxLength, MinLength, Matches } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsBoolean, IsEmail, IsIn, IsMongoId, IsOptional, IsString, IsNumber, Min, Max, MaxLength, MinLength, Matches } from 'class-validator';
 import { DELEGATABLE_ADMIN_PERMISSION_CODES } from './admin-permissions.js';
 
 export class AdminSigninDto {
@@ -15,6 +15,11 @@ export class UpdateAdminPermissionsDto {
   @IsArray() @ArrayMaxSize(DELEGATABLE_ADMIN_PERMISSION_CODES.length) @ArrayUnique() @IsIn(DELEGATABLE_ADMIN_PERMISSION_CODES, { each: true }) permissions!: string[];
 }
 export class UpdateAdminStatusDto { @IsBoolean() disabled!: boolean; }
+export class ClearAdminAuditDto { @IsString() @MinLength(3) @MaxLength(500) reason!: string; }
+export class DeleteSelectedAuditDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(250) @ArrayUnique() @IsMongoId({ each: true }) ids!: string[];
+  @IsString() @MinLength(3) @MaxLength(500) reason!: string;
+}
 export class UpdateUserDto {
   @IsOptional() @IsString() @MinLength(2) @MaxLength(120) fullName?: string;
   @IsOptional() @IsEmail() @MaxLength(254) email?: string;

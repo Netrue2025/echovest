@@ -5,6 +5,7 @@ import * as argon2 from 'argon2';
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import { Model } from 'mongoose';
 import { EmailService } from '../email/email.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 import { SessionsService } from '../sessions/sessions.service.js';
 import { UsersService } from '../users/users.service.js';
 import { EmailVerification } from './verification.schema.js';
@@ -17,6 +18,7 @@ export class AuthService {
     private readonly users: UsersService,
     private readonly sessions: SessionsService,
     private readonly emailService: EmailService,
+    private readonly notifications: NotificationsService,
     private readonly config: ConfigService,
     @InjectModel(EmailVerification.name) private readonly verifications: Model<EmailVerification>,
     @InjectModel(PasswordReset.name) private readonly passwordResets: Model<PasswordReset>,
@@ -47,6 +49,7 @@ export class AuthService {
     }
     try { await this.issueCode(String(user._id), email, user.fullName); }
     catch { await this.verifications.deleteOne({ userId: user._id }).exec(); await this.users.delete(String(user._id)); throw new ServiceUnavailableException('We could not send your verification email. Please try signing up again shortly.'); }
+    void this.notifications.notifyAdmins('New user signup', 'A new user account is awaiting email verification.', '/admin?section=users').catch((error) => this.logger.warn(`New signup admin alert failed: ${error instanceof Error ? error.message : 'unknown error'}`));
     return { message: 'Check your email for a verification code.', email };
   }
   async verifyEmail(emailInput: string, code: string) {
