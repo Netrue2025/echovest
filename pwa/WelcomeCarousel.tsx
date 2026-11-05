@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AppPreloader } from "../components/AppPreloader";
+import { AppLaunchSplash } from "../components/AppLaunchSplash";
 import { authRequest } from "../lib/auth-api";
 import { getPendingReferral, hasCompletedAppSetup, isStandalonePwa, markAppSetupComplete } from "../lib/referral-install";
 
@@ -102,7 +102,7 @@ export function WelcomeCarousel() {
   const move = (direction: 1 | -1) => goTo(active + direction);
   const beginSetup = () => markAppSetupComplete();
 
-  if (checkingEntry) return <AppPreloader label="Opening EchoVest..." />;
+  if (checkingEntry) return <AppLaunchSplash />;
 
   const handlePointerDown = (event: React.PointerEvent<HTMLElement>) => {
     if (isInteractiveTarget(event.target)) return;

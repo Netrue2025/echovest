@@ -9,8 +9,8 @@
   "display_override": ["standalone", "minimal-ui"],
   "launch_handler": { "client_mode": "navigate-existing" },
   "orientation": "portrait",
-  "background_color": "#F7F8FA",
-  "theme_color": "#F7F8FA",
+  "background_color": "#0B1016",
+  "theme_color": "#0B1016",
   "icons": [
     { "src": "/icons/echovest-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/echovest-icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
