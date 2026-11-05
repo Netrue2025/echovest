@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { countries } from "../lib/countries";
 import { authRequest } from "../lib/auth-api";
 import { AppPreloader } from "../components/AppPreloader";
-import { clearPendingReferral, getPendingReferral, isStandalonePwa, savePendingReferral } from "../lib/referral-install";
+import { clearPendingReferral, getPendingReferral, isStandalonePwa, markAppSetupComplete, savePendingReferral } from "../lib/referral-install";
 
 function PasswordField({ id, label, placeholder, value, onChange, autoComplete }: {
   id: string; label: string; placeholder: string; value: string; onChange: (value: string) => void; autoComplete: string;
@@ -44,6 +44,7 @@ export function SignUpPage() {
   const selectedCountry = useMemo(() => countries.find((item) => item.code === country) ?? countries[0], [country]);
 
   useEffect(() => {
+    markAppSetupComplete();
     const inviteCode = new URLSearchParams(window.location.search).get("ref");
     if (inviteCode) {
       const savedCode = savePendingReferral(inviteCode);
@@ -112,6 +113,7 @@ export function SignInPage() {
   const [password, setPassword] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  useEffect(() => { markAppSetupComplete(); }, []);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);

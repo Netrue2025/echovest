@@ -5,13 +5,14 @@ import { Model } from 'mongoose';
 import { Session } from './session.schema.js';
 
 export const SESSION_COOKIE = 'ev_session';
+export const SESSION_DURATION_MS = 24 * 60 * 60 * 1000;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 @Injectable()
 export class SessionsService {
   constructor(@InjectModel(Session.name) private readonly sessions: Model<Session>) {}
   async create(userId: string) {
     const token = randomBytes(32).toString('base64url');
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
     await this.sessions.create({ userId, tokenHash: hash(token), expiresAt });
     return { token, expiresAt };
   }

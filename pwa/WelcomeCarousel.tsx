@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { getPendingReferral, isStandalonePwa } from "../lib/referral-install";
+import { useRouter } from "next/navigation";
+import { AppPreloader } from "../components/AppPreloader";
+import { authRequest } from "../lib/auth-api";
+import { getPendingReferral, hasCompletedAppSetup, isStandalonePwa, markAppSetupComplete } from "../lib/referral-install";
 
 const slides = [
   {
@@ -32,20 +35,44 @@ function isInteractiveTarget(target: EventTarget | null) {
 }
 
 export function WelcomeCarousel() {
+  const router = useRouter();
   const [active, setActive] = useState(0);
   const [paused, setPaused] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [resetKey, setResetKey] = useState(0);
+  const [checkingEntry, setCheckingEntry] = useState(true);
   const gesture = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
-    const pendingReferral = getPendingReferral();
-    if (pendingReferral && isStandalonePwa()) {
-      window.location.replace(`/sign-up?ref=${encodeURIComponent(pendingReferral)}`);
-      return;
+    let active = true;
+    async function resolveEntry() {
+      if (!isStandalonePwa()) {
+        router.replace("/sign-in");
+        return;
+      }
+      try {
+        await authRequest("me");
+        router.replace("/dashboard");
+        return;
+      } catch {
+        const pendingReferral = getPendingReferral();
+        if (pendingReferral) {
+          markAppSetupComplete();
+          router.replace(`/sign-up?ref=${encodeURIComponent(pendingReferral)}`);
+          return;
+        }
+        if (hasCompletedAppSetup()) {
+          router.replace("/sign-in");
+          return;
+        }
+      } finally {
+        if (active) setCheckingEntry(false);
+      }
     }
-  }, []);
+    void resolveEntry();
+    return () => { active = false; };
+  }, [router]);
 
   useEffect(() => {
     const onVisibilityChange = () => setHidden(document.hidden);
@@ -73,6 +100,9 @@ export function WelcomeCarousel() {
   };
 
   const move = (direction: 1 | -1) => goTo(active + direction);
+  const beginSetup = () => markAppSetupComplete();
+
+  if (checkingEntry) return <AppPreloader label="Opening EchoVest..." />;
 
   const handlePointerDown = (event: React.PointerEvent<HTMLElement>) => {
     if (isInteractiveTarget(event.target)) return;
@@ -141,8 +171,8 @@ export function WelcomeCarousel() {
         </section>
 
         <div className="welcome-actions">
-          <a className="welcome-primary" href="/sign-up">{slides[active].cta}</a>
-          <a className="welcome-secondary" href="/sign-in">Sign In</a>
+          <a className="welcome-primary" href="/sign-up" onClick={beginSetup}>{slides[active].cta}</a>
+          <a className="welcome-secondary" href="/sign-in" onClick={beginSetup}>Sign In</a>
         </div>
       </div>
     </main>

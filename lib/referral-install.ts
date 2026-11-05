@@ -1,5 +1,16 @@
 const REFERRAL_STORAGE_KEY = "echovest-pending-referral";
 const REFERRAL_COOKIE_KEY = "echovest_referral_code";
+const APP_SETUP_COMPLETE_KEY = "echovest-app-setup-complete";
+
+export function hasCompletedAppSetup() {
+  if (typeof window === "undefined") return false;
+  try { return window.localStorage.getItem(APP_SETUP_COMPLETE_KEY) === "true"; } catch { return false; }
+}
+
+export function markAppSetupComplete() {
+  if (typeof window === "undefined") return;
+  try { window.localStorage.setItem(APP_SETUP_COMPLETE_KEY, "true"); } catch { /* The sign-in route remains the fallback. */ }
+}
 
 export function savePendingReferral(code: string) {
   const normalized = code.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 32);

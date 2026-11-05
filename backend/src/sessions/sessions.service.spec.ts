@@ -11,7 +11,8 @@ describe('SessionsService', () => {
     expect(create.mock.calls[0][0]).not.toHaveProperty('token', session.token);
     expect(create.mock.calls[0][0]).toHaveProperty('tokenHash');
     expect((create.mock.calls[0][0] as { tokenHash: string }).tokenHash).not.toBe(session.token);
-    expect(session.expiresAt.getTime()).toBeGreaterThan(Date.now() + 29 * 24 * 60 * 60 * 1000);
+    expect(session.expiresAt.getTime()).toBeGreaterThan(Date.now() + 23 * 60 * 60 * 1000);
+    expect(session.expiresAt.getTime()).toBeLessThan(Date.now() + 25 * 60 * 60 * 1000);
   });
 
   it('looks up and revokes sessions by their token hash and expires old sessions', async () => {
