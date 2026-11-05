@@ -194,7 +194,7 @@ function ReferralsView({ balance }: { balance: number }) {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   useEffect(() => { referralRequest<ReferralOverview>("me").then(setOverview).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load your referral details.")); }, []);
-  const link = overview && typeof window !== "undefined" ? `${window.location.origin}/?ref=${encodeURIComponent(overview.referralCode)}#download` : "";
+  const link = overview && typeof window !== "undefined" ? `${window.location.origin}/sign-up?ref=${encodeURIComponent(overview.referralCode)}` : "";
   async function copyLink() {
     if (!link) return;
     try { await navigator.clipboard.writeText(link); setCopied(true); window.setTimeout(() => setCopied(false), 1800); }

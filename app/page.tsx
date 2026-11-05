@@ -1,3 +1,4 @@
 import { Header } from '../components/Header'; import { Hero } from '../components/Hero'; import { TrustStrip } from '../components/TrustStrip'; import { Features } from '../components/Features'; import { Levels } from '../components/Levels'; import { HowItWorks } from '../components/HowItWorks'; import { InstallSteps } from '../components/InstallSteps'; import { Faq } from '../components/Faq'; import { RiskDisclosure } from '../components/RiskDisclosure'; import { Footer } from '../components/Footer';
 import { SupportChat } from '../pwa/SupportChat';
-export default function Page(){return <><Header/><main><Hero/><TrustStrip/><Features/><Levels/><HowItWorks/><InstallSteps/><Faq/><RiskDisclosure/></main><Footer/><SupportChat mode="guest"/></>}
+import { ReferralEntryRouter } from '../components/ReferralEntryRouter';
+export default function Page(){return <><ReferralEntryRouter/><Header/><main><Hero/><TrustStrip/><Features/><Levels/><HowItWorks/><InstallSteps/><Faq/><RiskDisclosure/></main><Footer/><SupportChat mode="guest"/></>}
