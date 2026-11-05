@@ -4,6 +4,7 @@ import { User } from '../users/user.schema.js';
 import { OriginGuard } from '../auth/origin.guard.js';
 import { SessionGuard } from '../auth/session.guard.js';
 import { AdminAccessGuard, RequireAdminPermissions } from '../admin/admin-access.guard.js';
+import { SuperAdminGuard } from '../admin/super-admin.guard.js';
 import { DepositReviewDto } from './deposit-review.dto.js';
 import { DepositsService } from './deposits.service.js';
 import { ArchiveHistoryDto, ArchiveSelectedHistoryDto } from '../finance/finance.dto.js';
@@ -36,6 +37,11 @@ export class DepositsController {
   @Delete('history') @UseGuards(OriginGuard)
   permanentlyDeleteSelectedHistory(@Body() body: ArchiveSelectedHistoryDto, @Req() request: Request & { user?: User }) {
     return this.deposits.permanentlyDeleteSelectedHistoryRecords(body.ids, body.reason, { id: String(request.user!._id), email: request.user!.email });
+  }
+
+  @Delete('history/all') @UseGuards(OriginGuard, SuperAdminGuard)
+  permanentlyDeleteAllHistory(@Body() body: ArchiveHistoryDto, @Req() request: Request & { user?: User }) {
+    return this.deposits.permanentlyDeleteAllHistory(body.reason, { id: String(request.user!._id), email: request.user!.email });
   }
 
   @Post('history/archive-all') @UseGuards(OriginGuard)

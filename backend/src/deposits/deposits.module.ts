@@ -19,6 +19,7 @@ import { DepositsController } from './deposits.controller.js';
 import { FinanceSettings, FinanceSettingsSchema } from '../finance/finance.schema.js';
 import { ReferralsModule } from '../referrals/referrals.module.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
+import { SuperAdminGuard } from '../admin/super-admin.guard.js';
 
 @Module({
   imports: [
@@ -34,7 +35,7 @@ import { NotificationsModule } from '../notifications/notifications.module.js';
     UsersModule, SessionsModule, ChainPayModule, ReferralsModule, NotificationsModule,
   ],
   controllers: [DepositsController],
-  providers: [DepositsService, DepositCreditService, TronVerificationService, SessionGuard, AdminAccessGuard, OriginGuard],
+  providers: [DepositsService, DepositCreditService, TronVerificationService, SessionGuard, AdminAccessGuard, OriginGuard, SuperAdminGuard],
   exports: [DepositsService],
 })
 export class DepositsModule {}

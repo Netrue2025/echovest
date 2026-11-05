@@ -14,6 +14,7 @@ import { NotificationsModule } from '../notifications/notifications.module.js';
 import { CopyTradeSignal, CopyTradeSignalSchema, TradePosition, TradePositionSchema } from '../trades/trade.schema.js';
 import { WithdrawalSecurityModule } from '../withdrawal-security/withdrawal-security.module.js';
 import { ReferralsModule } from '../referrals/referrals.module.js';
+import { SuperAdminGuard } from '../admin/super-admin.guard.js';
 
-@Module({ imports: [MongooseModule.forFeature([{ name: User.name, schema: UserSchema }, { name: FinanceTransaction.name, schema: FinanceTransactionSchema }, { name: FinanceSettings.name, schema: FinanceSettingsSchema }, { name: AdminAudit.name, schema: AdminAuditSchema }, { name: TradePosition.name, schema: TradePositionSchema }, { name: CopyTradeSignal.name, schema: CopyTradeSignalSchema }]), UsersModule, SessionsModule, NotificationsModule, WithdrawalSecurityModule, ReferralsModule], controllers: [FinanceController], providers: [FinanceService, SessionGuard, AdminAccessGuard, OriginGuard] })
+@Module({ imports: [MongooseModule.forFeature([{ name: User.name, schema: UserSchema }, { name: FinanceTransaction.name, schema: FinanceTransactionSchema }, { name: FinanceSettings.name, schema: FinanceSettingsSchema }, { name: AdminAudit.name, schema: AdminAuditSchema }, { name: TradePosition.name, schema: TradePositionSchema }, { name: CopyTradeSignal.name, schema: CopyTradeSignalSchema }]), UsersModule, SessionsModule, NotificationsModule, WithdrawalSecurityModule, ReferralsModule], controllers: [FinanceController], providers: [FinanceService, SessionGuard, AdminAccessGuard, OriginGuard, SuperAdminGuard] })
 export class FinanceModule {}

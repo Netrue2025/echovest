@@ -204,7 +204,7 @@ export class AdminService implements OnModuleInit {
     try {
       await session.withTransaction(async () => {
         const objectIds = ids.map((id) => new Types.ObjectId(id));
-        const protectedActions = ['audit.records_deleted', 'finance.deposit.txid_tombstone'];
+        const protectedActions = ['audit.records_deleted', 'finance.deposit.txid_tombstone', 'deposit.provider.txid_tombstone'];
         const filter = { _id: { $in: objectIds }, action: { $nin: protectedActions } };
         const records = await this.audit.find(filter).select('_id action targetType targetId').session(session).lean().exec();
         if (!records.length) return;

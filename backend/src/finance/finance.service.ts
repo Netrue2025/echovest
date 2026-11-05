@@ -237,22 +237,31 @@ export class FinanceService {
     return { type, archivedCount: count };
   }
   async permanentlyDeleteSelectedTransactions(type: 'deposit' | 'withdrawal', ids: string[], reason: string, actor: Actor) {
-    const session = await this.transactions.db.startSession();
-    let count = 0;
-    try {
-      await session.withTransaction(async () => {
-        const records = await this.transactions.find({ _id: { $in: ids.map((id) => new Types.ObjectId(id)) }, type, status: { $in: ['approved', 'rejected'] } }).select('_id amount txid').session(session).lean().exec();
-        if (!records.length) return;
-        const result = await this.transactions.deleteMany({ _id: { $in: records.map((item) => item._id) }, type, status: { $in: ['approved', 'rejected'] } }, { session }).exec();
-        count = result.deletedCount;
-        if (count) {
-          const deletionAudit = [{ actorId: actor.id, actorEmail: actor.email, action: `finance.${type}.history_permanently_deleted`, targetType: 'transaction_history', targetId: type, targetLabel: `${type} history`, detail: `${count} resolved record(s) permanently deleted. Reason: ${reason.trim()}. Record IDs: ${records.map((item) => String(item._id)).join(', ')}.` }];
-          const transactionHashTombstones = type === 'deposit' ? records.filter((item) => item.txid).map((item) => ({ actorId: actor.id, actorEmail: actor.email, action: 'finance.deposit.txid_tombstone', targetType: 'deleted_deposit_transaction_hash', targetId: item.txid!, targetLabel: 'Previously submitted transaction hash', detail: `A deleted deposit history record retains this hash to prevent replay. Reason: ${reason.trim()}.` })) : [];
-          await this.audit.create([...deletionAudit, ...transactionHashTombstones], { session });
-        }
-      });
-    } finally { await session.endSession(); }
-    return { type, deletedCount: count };
+    const records = await this.transactions.find({ _id: { $in: ids.map((id) => new Types.ObjectId(id)) }, type, status: { $in: ['approved', 'rejected'] } }).select('_id amount txid').lean().exec();
+    if (!records.length) return { type, deletedCount: 0 };
+    const reasonText = reason.trim();
+    const deletionAudit = [{ actorId: actor.id, actorEmail: actor.email, action: `finance.${type}.history_permanently_deleted`, targetType: 'transaction_history', targetId: type, targetLabel: `${type} history`, detail: `Requested permanent deletion of ${records.length} resolved record(s). Reason: ${reasonText}. Record IDs: ${records.map((item) => String(item._id)).join(', ')}.` }];
+    const transactionHashTombstones = type === 'deposit' ? records.filter((item) => item.txid).map((item) => ({ actorId: actor.id, actorEmail: actor.email, action: 'finance.deposit.txid_tombstone', targetType: 'deleted_deposit_transaction_hash', targetId: item.txid!, targetLabel: 'Previously submitted deposit transaction hash', detail: `History deleted; retain this hash to prevent replay. Reason: ${reasonText}.` })) : [];
+    // Write the append-only audit trail before deleting. This deliberately avoids
+    // requiring MongoDB multi-document transactions for this history-only action.
+    await this.audit.create([...deletionAudit, ...transactionHashTombstones]);
+    const result = await this.transactions.deleteMany({ _id: { $in: records.map((item) => item._id) }, type, status: { $in: ['approved', 'rejected'] } }).exec();
+    await this.audit.create({ actorId: actor.id, actorEmail: actor.email, action: `finance.${type}.history_permanently_deleted_result`, targetType: 'transaction_history', targetId: type, targetLabel: `${type} history`, detail: `${result.deletedCount} of ${records.length} resolved record(s) permanently deleted.` });
+    return { type, deletedCount: result.deletedCount };
+  }
+
+  async permanentlyDeleteAllDepositTransactions(reason: string, actor: Actor) {
+    const records = await this.transactions.find({ type: 'deposit' }).select('_id txid').lean().exec();
+    if (!records.length) return { type: 'deposit', deletedCount: 0 };
+    const reasonText = reason.trim();
+    const tombstones = records.filter((item) => item.txid).map((item) => ({ actorId: actor.id, actorEmail: actor.email, action: 'finance.deposit.txid_tombstone', targetType: 'deleted_deposit_transaction_hash', targetId: item.txid!, targetLabel: 'Previously submitted deposit transaction hash', detail: `Deposit history cleared for fresh launch; retain this hash to prevent replay. Reason: ${reasonText}.` }));
+    await this.audit.create([
+      { actorId: actor.id, actorEmail: actor.email, action: 'finance.deposit.history_all_delete_requested', targetType: 'transaction_history', targetId: 'deposit', targetLabel: 'All manual deposit history', detail: `Requested permanent deletion of ${records.length} manual deposit record(s). Reason: ${reasonText}.` },
+      ...tombstones,
+    ]);
+    const result = await this.transactions.deleteMany({ _id: { $in: records.map((item) => item._id) }, type: 'deposit' }).exec();
+    await this.audit.create({ actorId: actor.id, actorEmail: actor.email, action: 'finance.deposit.history_all_deleted', targetType: 'transaction_history', targetId: 'deposit', targetLabel: 'All manual deposit history', detail: `${result.deletedCount} of ${records.length} manual deposit record(s) deleted. User balances and financial ledgers were not changed.` });
+    return { type: 'deposit', deletedCount: result.deletedCount };
   }
   async review(id: string, expectedType: 'deposit' | 'withdrawal', decision: 'approved' | 'rejected', reason: string | undefined, actor: Actor) {
     const transaction = await this.transactions.findById(id).exec();

@@ -87,6 +87,9 @@ export class DepositsService implements OnModuleInit, OnModuleDestroy {
     const txHash = typeof payload.txHash === 'string' ? payload.txHash.trim() : '';
     const externalReference = typeof payload.externalReference === 'string' ? payload.externalReference.trim() : '';
     const amount = typeof payload.amount === 'string' ? payload.amount.trim() : '';
+    if (txHashPattern.test(txHash) && await this.audit.exists({ action: 'deposit.provider.txid_tombstone', targetId: txHash.toLowerCase() }).exec()) {
+      return { accepted: false, reason: 'transaction_hash_already_processed' };
+    }
     const account = await this.accounts.findOne({ provider: 'chainpay', externalReference, accountStatus: 'active' }).exec();
     if (!account) return { accepted: false, reason: 'unknown_deposit_reference' };
     const differences: string[] = [];
@@ -294,18 +297,31 @@ export class DepositsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async permanentlyDeleteSelectedHistoryRecords(ids: string[], reason: string, actor: AdminActor) {
-    const session = await this.events.db.startSession();
-    let count = 0;
-    try {
-      await session.withTransaction(async () => {
-        const records = await this.events.find({ _id: { $in: ids.map((id) => new Types.ObjectId(id)) }, status: { $in: ['credited', 'rejected'] } }).select('_id providerTransactionId amount').session(session).lean().exec();
-        if (!records.length) return;
-        const result = await this.events.deleteMany({ _id: { $in: records.map((item) => item._id) }, status: { $in: ['credited', 'rejected'] } }, { session }).exec();
-        count = result.deletedCount;
-        if (count) await this.audit.create([{ actorId: actor.id, actorEmail: actor.email, action: 'deposit.history_permanently_deleted', targetType: 'provider_deposit_history', targetId: 'selected', targetLabel: 'Selected ChainPay deposit history', detail: `${count} resolved provider record(s) permanently deleted. Reason: ${reason.trim()}. Transaction hashes: ${records.map((item) => item.providerTransactionId).join(', ')}.` }], { session });
-      });
-    } finally { await session.endSession(); }
-    return { deletedCount: count };
+    const records = await this.events.find({ _id: { $in: ids.map((id) => new Types.ObjectId(id)) }, status: { $in: ['credited', 'rejected'] } }).select('_id providerTransactionId amount').lean().exec();
+    if (!records.length) return { deletedCount: 0 };
+    const reasonText = reason.trim();
+    await this.audit.create([
+      { actorId: actor.id, actorEmail: actor.email, action: 'deposit.history_permanently_deleted', targetType: 'provider_deposit_history', targetId: 'selected', targetLabel: 'Selected ChainPay deposit history', detail: `Requested permanent deletion of ${records.length} resolved provider record(s). Reason: ${reasonText}.` },
+      ...records.filter((item) => item.providerTransactionId).map((item) => ({ actorId: actor.id, actorEmail: actor.email, action: 'deposit.provider.txid_tombstone', targetType: 'deleted_chainpay_transaction_hash', targetId: item.providerTransactionId.toLowerCase(), targetLabel: 'Previously processed ChainPay transaction hash', detail: `History deleted; retain this hash to prevent replay. Reason: ${reasonText}.` })),
+    ]);
+    const result = await this.events.deleteMany({ _id: { $in: records.map((item) => item._id) }, status: { $in: ['credited', 'rejected'] } }).exec();
+    await this.audit.create({ actorId: actor.id, actorEmail: actor.email, action: 'deposit.history_permanently_deleted_result', targetType: 'provider_deposit_history', targetId: 'selected', targetLabel: 'Selected ChainPay deposit history', detail: `${result.deletedCount} of ${records.length} resolved ChainPay record(s) deleted.` });
+    return { deletedCount: result.deletedCount };
+  }
+
+  async permanentlyDeleteAllHistory(reason: string, actor: AdminActor) {
+    const active = await this.events.countDocuments({ status: { $in: ['reconciling', 'verified_pending_credit', 'crediting'] } }).exec();
+    if (active) throw new ConflictException('A ChainPay deposit is being verified or credited. Wait for it to finish, then clear history again.');
+    const records = await this.events.find({}).select('_id providerTransactionId').lean().exec();
+    if (!records.length) return { deletedCount: 0 };
+    const reasonText = reason.trim();
+    await this.audit.create([
+      { actorId: actor.id, actorEmail: actor.email, action: 'deposit.history_all_delete_requested', targetType: 'provider_deposit_history', targetId: 'all', targetLabel: 'All ChainPay deposit history', detail: `Requested permanent deletion of ${records.length} ChainPay history record(s). Reason: ${reasonText}.` },
+      ...records.filter((item) => item.providerTransactionId).map((item) => ({ actorId: actor.id, actorEmail: actor.email, action: 'deposit.provider.txid_tombstone', targetType: 'deleted_chainpay_transaction_hash', targetId: item.providerTransactionId.toLowerCase(), targetLabel: 'Previously processed ChainPay transaction hash', detail: `ChainPay history cleared for fresh launch; retain this hash to prevent replay. Reason: ${reasonText}.` })),
+    ]);
+    const result = await this.events.deleteMany({ _id: { $in: records.map((item) => item._id) }, status: { $nin: ['reconciling', 'verified_pending_credit', 'crediting'] } }).exec();
+    await this.audit.create({ actorId: actor.id, actorEmail: actor.email, action: 'deposit.history_all_deleted', targetType: 'provider_deposit_history', targetId: 'all', targetLabel: 'All ChainPay deposit history', detail: `${result.deletedCount} of ${records.length} ChainPay record(s) deleted. Deposit ledgers and user balances were not changed.` });
+    return { deletedCount: result.deletedCount };
   }
 
   async restoreHistoryRecord(id: string, actor: AdminActor) {
