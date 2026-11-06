@@ -1,4 +1,4 @@
-const CACHE_NAME = "echovest-pwa-v1";
+const CACHE_NAME = "echovest-pwa-v2";
 const APP_SHELL = ["/pwa", "/echovest-icon.png", "/icons/echovest-192.png", "/echovest-mobile-hero.jfif"];
 
 self.addEventListener("install", (event) => {
