@@ -589,6 +589,27 @@ body{overflow-x:hidden}@media(max-width:900px){.grid-lines>.container{grid-templ
 .dash-trading-info-status{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:999px;background:#FFFFFFC9;color:#6B7076;font-size:10px;font-weight:750;white-space:nowrap}
 .dash-trading-info-status i{width:7px;height:7px;border-radius:50%;background:#A9ADB2}
 .dash-trading-info-status.live{color:#07865D}.dash-trading-info-status.live i{background:#00A878;box-shadow:0 0 0 3px #00A87820}
+
+/* Small daily P&L line below the investment balance. */
+.dash-daily-pnl{position:relative;z-index:1;display:flex;align-items:center;gap:6px;margin-top:7px;color:#CBD4DE;font-size:10px;font-weight:550}
+.dash-daily-pnl b{font-size:10px;font-weight:750}
+.dash-daily-pnl.positive b{color:#35D6A0}.dash-daily-pnl.negative b{color:#FF8585}
+.dash-mobile-balance .dash-daily-pnl{grid-column:1;grid-row:3;margin-top:0;font-size:9px}
+.dash-mobile-balance .dash-daily-pnl b{font-size:9px}
+.dash-mobile-balance-actions{grid-row:1/4}
+.dash-copy-confirm-stats{margin-top:16px;display:grid;gap:9px}
+.dash-copy-confirm-stats>span{padding:11px 12px;display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #EBEEF1;border-radius:10px;background:#FAFBFC;color:#707A83;font-size:11px}
+.dash-copy-confirm-stats strong{color:#23292F;font-size:12px;text-align:right}
+.dash-copy-confirm-card>small{display:block;margin-top:11px;color:#87909A;font-size:10px;line-height:1.5}
+.dash-copy-confirm-card>header button:disabled,.dash-copy-confirm-card>footer button:disabled{opacity:.55;cursor:wait}
+.dash-trade-join{grid-template-columns:1fr}
+.dash-trade-join>button{width:100%;min-height:43px;font-size:11px}
+.dash-copy-balance-note{color:#77828D;font-size:10px;line-height:1.4}
+.dash-copy-balance-note.blocked{color:#B04439}
+.dash-position-status.closed_loss{background:#FFF0EF;color:#B9362D}
+.dash-position-values strong.negative{color:#B9362D}
+.dash-position-loss{margin-top:10px;padding:9px 10px;border:1px solid #F3D5D2;border-radius:9px;background:#FFF6F5;color:#A7433C;font-size:10px;line-height:1.45}
+@media(max-width:800px){.dash-mobile-balance .dash-daily-pnl{grid-column:1;grid-row:3}.dash-mobile-balance-actions{grid-row:1/4}.dash-copy-confirm-card>small{font-size:11px}}
 .dash-trading-info-note{grid-column:2/-1;margin:8px 0 0;color:#706F6A;font-size:10px;line-height:1.5}
 .dash-trading-info>a{grid-column:2/-1;justify-self:start;margin-top:5px;display:inline-flex;align-items:center;gap:5px;color:#856300;text-decoration:none;font-size:10px;font-weight:750}
 .dash-profit-withdraw-card{margin-bottom:14px;padding:15px 17px;display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #EDE2BC;border-radius:13px;background:linear-gradient(105deg,#FFFBEE,#FFF7E1)}

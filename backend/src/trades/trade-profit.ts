@@ -5,10 +5,11 @@ export const tradeAmountUnits = (value: number) => Math.round((value + Number.EP
 
 /** Canonical ROI calculation shared by dashboard balances and withdrawal reservations. */
 export function earnedTradeInterestUnits(
-  position: Pick<TradePosition, 'principal' | 'joinedAt' | 'stoppedAt'>,
+  position: Pick<TradePosition, 'principal' | 'joinedAt' | 'stoppedAt'> & Partial<Pick<TradePosition, 'status'>>,
   signal: Pick<CopyTradeSignal, 'roiPercent' | 'lockDays' | 'startsAt' | 'endsAt'>,
   now: Date,
 ) {
+  if (position.status === 'closed_loss') return 0;
   const scheduleStart = new Date(signal.startsAt).getTime();
   const joinedAt = new Date(position.joinedAt).getTime();
   const nowAt = now.getTime();
@@ -31,7 +32,7 @@ export function earnedTradeInterestUnits(
 }
 
 export function availableTradeInterestUnits(
-  position: Pick<TradePosition, 'principal' | 'joinedAt' | 'stoppedAt' | 'claimedInterest'>,
+  position: Pick<TradePosition, 'principal' | 'joinedAt' | 'stoppedAt' | 'claimedInterest'> & Partial<Pick<TradePosition, 'status'>>,
   signal: Pick<CopyTradeSignal, 'roiPercent' | 'lockDays' | 'startsAt' | 'endsAt'>,
   now: Date,
 ) {

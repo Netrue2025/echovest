@@ -15,7 +15,7 @@ export class TradesController {
   me(@Req() request: Request & { user?: User }) { return this.trades.userDashboard(String(request.user!._id)); }
 
   @Post(':id/join') @UseGuards(OriginGuard, SessionGuard)
-  join(@Req() request: Request & { user?: User }, @Param('id') id: string, @Body() body: JoinTradeDto) { return this.trades.join(String(request.user!._id), id, body.amount); }
+  join(@Req() request: Request & { user?: User }, @Param('id') id: string) { return this.trades.join(String(request.user!._id), id); }
 
   @Post('positions/:id/stop') @UseGuards(OriginGuard, SessionGuard)
   stop(@Req() request: Request & { user?: User }, @Param('id') id: string) { return this.trades.stop(String(request.user!._id), id); }

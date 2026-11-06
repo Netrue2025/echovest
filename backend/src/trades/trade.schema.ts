@@ -31,11 +31,14 @@ export class TradePosition {
   @Prop({ type: Types.ObjectId, required: true, index: true }) userId!: Types.ObjectId;
   @Prop({ type: Types.ObjectId, required: true, index: true }) signalId!: Types.ObjectId;
   @Prop({ required: true, min: 0.01 }) principal!: number;
-  @Prop({ required: true, enum: ['active', 'stopped', 'matured'], default: 'active', index: true }) status!: 'active' | 'stopped' | 'matured';
+  @Prop({ required: true, enum: ['active', 'stopped', 'matured', 'closed_loss'], default: 'active', index: true }) status!: 'active' | 'stopped' | 'matured' | 'closed_loss';
   @Prop({ required: true }) joinedAt!: Date;
   @Prop({ type: Date, default: null }) stoppedAt?: Date | null;
   @Prop({ type: Date, default: null }) principalReturnedAt?: Date | null;
+  @Prop({ type: Number, default: null, min: 0 }) principalReturnedAmount?: number | null;
   @Prop({ type: Date, default: null }) capitalUnlockAt?: Date | null;
+  @Prop({ type: Number, default: 0, min: 0 }) lossAmount!: number;
+  @Prop({ type: Date, default: null }) lossAt?: Date | null;
   @Prop({ default: 0, min: 0 }) claimedInterest!: number;
 }
 export const TradePositionSchema = SchemaFactory.createForClass(TradePosition);

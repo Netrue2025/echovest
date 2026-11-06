@@ -9,7 +9,7 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { CopyTradeSignal, TradePosition } from '../trades/trade.schema.js';
 import { assertWithdrawalWindow } from './withdrawal-window.js';
 import { WithdrawalSecurityService } from '../withdrawal-security/withdrawal-security.service.js';
-import { availableTradeInterestUnits, tradeAmountUnits } from '../trades/trade-profit.js';
+import { availableTradeInterestUnits, earnedTradeInterestUnits, TRADE_AMOUNT_SCALE, tradeAmountUnits } from '../trades/trade-profit.js';
 import { ReferralsService } from '../referrals/referrals.service.js';
 
 type Actor = { id: string; email: string };
@@ -30,19 +30,22 @@ export class FinanceService {
   }
   async summary(userId: string) {
     await this.settleMaturedCapital(userId);
-    const [user, transactions, positions, settings, approvedProfitWithdrawals] = await Promise.all([this.users.findById(userId).select('tradingBalance maturedPrincipalBalance lockedCapitalLots referralBalance pendingTradingWithdrawals pendingMaturedWithdrawals pendingReferralWithdrawals membershipLevel').lean().exec(), this.listUserTransactions(userId), this.tradePositions.find({ userId: new Types.ObjectId(userId) }).select('signalId principal joinedAt stoppedAt claimedInterest principalReturnedAt status').lean().exec(), this.config(), this.transactions.find({ userId: new Types.ObjectId(userId), type: 'withdrawal', sourceType: 'trade_interest', status: 'approved' }).select('amount').lean().exec()]);
+    const [user, transactions, positions, settings, approvedProfitWithdrawals] = await Promise.all([this.users.findById(userId).select('tradingBalance maturedPrincipalBalance lockedCapitalLots referralBalance pendingTradingWithdrawals pendingMaturedWithdrawals pendingReferralWithdrawals membershipLevel').lean().exec(), this.listUserTransactions(userId), this.tradePositions.find({ userId: new Types.ObjectId(userId) }).select('signalId principal principalReturnedAmount joinedAt stoppedAt claimedInterest principalReturnedAt status lossAmount lossAt').lean().exec(), this.config(), this.transactions.find({ userId: new Types.ObjectId(userId), type: 'withdrawal', sourceType: 'trade_interest', status: 'approved' }).select('amount').lean().exec()]);
     if (!user) throw new NotFoundException('Account not found.');
     const trading = user.tradingBalance ?? 0, referral = user.referralBalance ?? 0;
     let maturedPrincipal = user.maturedPrincipalBalance ?? 0;
     const hasMaturityLedger = await this.users.exists({ _id: userId, maturedPrincipalBalance: { $exists: true } }).exec();
     if (!hasMaturityLedger) {
-      const returnedPrincipal = positions.reduce((sum, position) => sum + (position.principalReturnedAt ? position.principal : 0), 0);
+      const returnedPrincipal = positions.reduce((sum, position) => sum + (position.principalReturnedAt ? position.principalReturnedAmount ?? Math.max(0, position.principal - Number(position.lossAmount ?? 0)) : 0), 0);
       maturedPrincipal = Math.max(0, Math.min(returnedPrincipal, trading - (user.pendingTradingWithdrawals ?? 0)));
       await this.users.updateOne({ _id: userId, maturedPrincipalBalance: { $exists: false } }, { $set: { maturedPrincipalBalance: maturedPrincipal, pendingMaturedWithdrawals: 0 } }).exec();
     }
     const signals = positions.length ? await this.tradeSignals.find({ _id: { $in: positions.map((position) => position.signalId) } }).select('roiPercent lockDays startsAt endsAt').lean().exec() : [];
     const signalMap = new Map(signals.map((signal) => [String(signal._id), signal]));
+    const now = new Date();
+    const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const grossProfitEarned = positions.reduce((total, position) => {
+      if (position.status === 'closed_loss') return total;
       const signal = signalMap.get(String(position.signalId));
       if (!signal) return total;
       const scheduledStart = new Date(signal.startsAt).getTime();
@@ -54,11 +57,19 @@ export class FinanceService {
       const profit = position.principal * signal.roiPercent / 100 * Math.min(1, elapsed / Math.max(1, end - start));
       return total + profit;
     }, 0);
+    const dailyPnl = positions.reduce((total, position) => {
+      if (position.status === 'closed_loss') return position.lossAt && new Date(position.lossAt).getTime() > dayAgo.getTime() ? total - Number(position.lossAmount ?? 0) : total;
+      const signal = signalMap.get(String(position.signalId));
+      if (!signal) return total;
+      const current = earnedTradeInterestUnits(position, signal, now);
+      const previous = earnedTradeInterestUnits(position, signal, dayAgo);
+      return total + (current - previous) / TRADE_AMOUNT_SCALE;
+    }, 0);
     // Only closed positions can fund a profit withdrawal. Keep the available
     // figure aligned with withdrawProfit(), which reserves from stopped/matured
     // positions only and rejects the request if any position remains active.
     const closedPositions = positions.filter((position) => position.status === 'stopped' || position.status === 'matured');
-    const profitCalculationTime = new Date();
+    const profitCalculationTime = now;
     const closedProfitUnits = closedPositions.reduce((total, position) => {
       const signal = signalMap.get(String(position.signalId));
       if (!signal) return total;
@@ -72,7 +83,7 @@ export class FinanceService {
     const lockedCapital = lockedCapitalLots.reduce((total, lot) => total + lot.amount, 0);
     const nextCapitalUnlockAt = lockedCapitalLots.reduce<Date | null>((earliest, lot) => !earliest || new Date(lot.unlockAt).getTime() < earliest.getTime() ? new Date(lot.unlockAt) : earliest, null);
     const membershipBenefit = await this.referrals.membershipBenefits(user.membershipLevel);
-    return { membership: { level: membershipBenefit.level, withdrawalReviewHours: membershipBenefit.withdrawalReviewHours, withdrawalFeeDiscountPercent: membershipBenefit.withdrawalFeeDiscountPercent }, balances: { trading, referral, availableTrading: Math.max(0, trading - (user.pendingTradingWithdrawals ?? 0) - pendingMatured), maturedPrincipal, availableMaturedPrincipal: Math.max(0, maturedPrincipal - pendingMatured), lockedCapital, nextCapitalUnlockAt, capitalLockDays: settings?.capitalLockDays ?? 60, availableReferral: Math.max(0, referral - (user.pendingReferralWithdrawals ?? 0)), totalProfitEarned, availableProfit: availableProfitUnits / 100_000_000 }, transactions };
+    return { membership: { level: membershipBenefit.level, withdrawalReviewHours: membershipBenefit.withdrawalReviewHours, withdrawalFeeDiscountPercent: membershipBenefit.withdrawalFeeDiscountPercent }, balances: { trading, referral, availableTrading: Math.max(0, trading - (user.pendingTradingWithdrawals ?? 0) - pendingMatured), maturedPrincipal, availableMaturedPrincipal: Math.max(0, maturedPrincipal - pendingMatured), lockedCapital, nextCapitalUnlockAt, capitalLockDays: settings?.capitalLockDays ?? 60, availableReferral: Math.max(0, referral - (user.pendingReferralWithdrawals ?? 0)), totalProfitEarned, availableProfit: availableProfitUnits / 100_000_000 }, dailyPnl: Math.round(dailyPnl * TRADE_AMOUNT_SCALE) / TRADE_AMOUNT_SCALE, transactions };
   }
   async settleMaturedCapital(userId?: string) {
     const now = new Date();

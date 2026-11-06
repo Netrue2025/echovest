@@ -11,7 +11,8 @@ export class CreateTradeSignalDto {
 }
 
 export class JoinTradeDto {
-  @IsNumber({ maxDecimalPlaces: 8 }) @Min(0.01) amount!: number;
+  // A copy action always uses the user's full available investment balance.
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 8 }) @Min(0.01) amount?: number;
 }
 
 export class WithdrawTradeInterestDto {

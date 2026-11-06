@@ -70,10 +70,35 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
 
   async closeSignal(signalId: string, actor: Actor) {
     if (!Types.ObjectId.isValid(signalId)) throw new NotFoundException('Copy trade not found.');
-    const signal = await this.signals.findOneAndUpdate({ _id: signalId, status: 'open' }, { $set: { status: 'completed' } }, { new: true }).exec();
-    if (!signal) throw new ConflictException('This trade is already closed or unavailable.');
-    await this.writeAudit(actor.id, actor.email, 'trades.signal.closed', signalId, `${signal.pair} copy trade`, 'Stopped accepting new participants. Existing positions continue until their individual maturity dates.');
-    await this.notifications.notifyAll(`Copy trade closed: ${signal.pair}`, `${signal.title} is no longer accepting new participants. Existing positions continue under their original terms.`, '/dashboard?view=trading').catch((error) => this.logger.warn(`Trade close notification failed: ${error instanceof Error ? error.message : 'unknown error'}`));
+    const session = await this.positions.db.startSession();
+    let signal!: CopyTradeSignal;
+    const closedUsers: Array<{ id: string; loss: number }> = [];
+    const now = new Date();
+    try {
+      await session.withTransaction(async () => {
+        const closedSignal = await this.signals.findOneAndUpdate({ _id: signalId, status: 'open' }, { $set: { status: 'completed' } }, { new: true, session }).exec();
+        if (!closedSignal) throw new ConflictException('This trade is already closed or unavailable.');
+        signal = closedSignal;
+        const settings = await this.financeSettings.findOne({ key: 'platform' }).session(session).lean().exec();
+        const capitalUnlockAt = new Date(now.getTime() + (settings?.capitalLockDays ?? 60) * DAY_MS);
+        const active = await this.positions.find({ signalId: new Types.ObjectId(signalId), status: 'active', principalReturnedAt: null }).session(session).exec();
+        for (const position of active) {
+          // Principal was debited at join. Returning principal minus the loss
+          // realizes the loss exactly once without charging the wallet twice.
+          const loss = Math.min(position.principal, this.interestAt(position, signal, now));
+          const returnedPrincipal = Math.max(0, amountUnits(position.principal - loss) / TRADE_AMOUNT_SCALE);
+          const updated = await this.positions.findOneAndUpdate({ _id: position._id, status: 'active', principalReturnedAt: null }, { $set: { status: 'closed_loss', stoppedAt: now, principalReturnedAt: now, principalReturnedAmount: returnedPrincipal, capitalUnlockAt, lossAmount: loss, lossAt: now } }, { new: true, session }).exec();
+          if (!updated) continue;
+          const userUpdate = await this.users.updateOne({ _id: position.userId }, { $inc: { tradingBalance: returnedPrincipal }, ...(returnedPrincipal > 0 ? { $push: { lockedCapitalLots: { amount: returnedPrincipal, unlockAt: capitalUnlockAt } } } : {}) }, { session }).exec();
+          if (!userUpdate.matchedCount) throw new NotFoundException('Could not settle a copied trade position.');
+          closedUsers.push({ id: String(position.userId), loss });
+          await this.writeAudit(actor.id, actor.email, 'trades.position.closed_at_loss', String(position._id), `${signal.pair} copy trade`, `Admin closed the trade at ${now.toISOString()}; ${loss.toFixed(8)} USD loss was realized and ${returnedPrincipal.toFixed(8)} USD principal was returned to the investment balance, locked until ${capitalUnlockAt.toISOString()}.`, session);
+        }
+        await this.writeAudit(actor.id, actor.email, 'trades.signal.closed', signalId, `${signal.pair} copy trade`, `Admin closed the trade at ${now.toISOString()}; ${closedUsers.length} active position(s) settled at the loss accrued at closure.`, session);
+      });
+    } finally { await session.endSession(); }
+    for (const recipient of closedUsers) await this.notifications.notifyUser(recipient.id, `Copy trade ended: ${signal.pair}`, `The trade ended early. ${recipient.loss.toFixed(2)} USD was realized as the loss at closure, and the remaining principal was returned to your investment balance. Watch out for the next trading session.`, 'general').catch((error) => this.logger.warn(`Trade end notification failed: ${error instanceof Error ? error.message : 'unknown error'}`));
+    await this.notifications.notifyAll(`Copy trade ended: ${signal.pair}`, `${signal.title} was closed early and is no longer accepting participants. Watch out for the next trading session.`, '/dashboard?view=trading').catch((error) => this.logger.warn(`Trade close notification failed: ${error instanceof Error ? error.message : 'unknown error'}`));
     return this.serializeSignal(signal);
   }
 
@@ -97,7 +122,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
 
   private serializePosition(position: TradePosition, signal: CopyTradeSignal) {
     const accrued = this.interestAt(position, signal);
-    return { id: String(position._id), signalId: String(signal._id), pair: signal.pair, title: signal.title, principal: position.principal, status: position.status, joinedAt: position.joinedAt, stoppedAt: position.stoppedAt ?? null, principalReturnedAt: position.principalReturnedAt ?? null, capitalUnlockAt: position.capitalUnlockAt ?? null, maturesAt: maturesAt(position, signal), roiPercent: signal.roiPercent, lockDays: signalDuration(signal) / DAY_MS, interestAccrued: accrued, interestClaimed: position.claimedInterest, interestAvailable: Math.max(0, accrued - position.claimedInterest) };
+    return { id: String(position._id), signalId: String(signal._id), pair: signal.pair, title: signal.title, principal: position.principal, principalReturnedAmount: position.principalReturnedAmount ?? (position.principalReturnedAt ? position.principal : null), status: position.status, joinedAt: position.joinedAt, stoppedAt: position.stoppedAt ?? null, principalReturnedAt: position.principalReturnedAt ?? null, capitalUnlockAt: position.capitalUnlockAt ?? null, maturesAt: maturesAt(position, signal), roiPercent: signal.roiPercent, lockDays: signalDuration(signal) / DAY_MS, interestAccrued: accrued, interestClaimed: position.claimedInterest, interestAvailable: Math.max(0, accrued - position.claimedInterest), lossAmount: position.lossAmount ?? 0 };
   }
 
   async publishDueSignals() {
@@ -113,9 +138,10 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
       try { await this.notifications.notifyAll(`Copy trade now open: ${opened.pair}`, `${opened.title} is live and available to join until ${scheduleEndsAt(opened).toISOString()}. Configured ROI: ${opened.roiPercent}% over ${lockTermLabel(signalDuration(opened))}.`, `/dashboard?view=trading`); }
       catch (error) { this.logger.error(`Trade launch notification failed for ${opened.pair}: ${error instanceof Error ? error.message : 'unknown error'}`); }
     }
-    const open = await this.signals.find({ status: 'open' }).exec();
+    const open = await this.signals.find({ status: 'open', endsAt: { $lte: now } }).exec();
     for (const signal of open) {
-      if (scheduleEndsAt(signal).getTime() <= now.getTime()) await this.signals.updateOne({ _id: signal._id, status: 'open' }, { $set: { status: 'completed' } }).exec();
+      const ended = await this.signals.findOneAndUpdate({ _id: signal._id, status: 'open', endsAt: { $lte: now } }, { $set: { status: 'completed' } }, { new: true }).exec();
+      if (ended) await this.notifications.notifyAll(`Copy trade ended: ${ended.pair}`, `${ended.title} has reached its scheduled end. Watch out for the next trading session.`, '/dashboard?view=trading').catch((error) => this.logger.warn(`Trade end notification failed: ${error instanceof Error ? error.message : 'unknown error'}`));
     }
   }
 
@@ -145,13 +171,12 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
     return signals.map((signal) => this.serializeSignal(signal, countMap.get(String(signal._id)) ?? 0));
   }
 
-  async join(userId: string, signalId: string, amount: number) {
+  async join(userId: string, signalId: string) {
     await this.publishDueSignals();
     if (!Types.ObjectId.isValid(signalId)) throw new NotFoundException('Copy trade not found.');
     const signal = await this.signals.findOne({ _id: signalId, status: 'open' }).lean().exec();
     if (!signal) throw new ConflictException('This copy trade is not open for joining.');
     if (scheduleEndsAt(signal).getTime() <= Date.now()) throw new ConflictException('The scheduled copy-trade window has ended.');
-    if (amount < signal.minimumInvestment || amount > signal.maximumInvestment) throw new BadRequestException(`Investment must be between ${signal.minimumInvestment} and ${signal.maximumInvestment} USD.`);
     const session = await this.positions.db.startSession();
     let position: TradePosition | null = null;
     try {
@@ -159,8 +184,10 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
         if (await this.positions.exists({ userId: new Types.ObjectId(userId), signalId: new Types.ObjectId(signalId) }).session(session)) throw new ConflictException('You already joined or stopped this trade. You cannot join it again.');
         const openSignal = await this.signals.findOneAndUpdate({ _id: signalId, status: 'open' }, { $inc: { currentCopiers: 1 } }, { new: true, session }).exec();
         if (!openSignal) throw new ConflictException('This copy trade has just closed to new participants.');
-        const investor = await this.users.findOne({ _id: userId, role: 'user', isDisabled: { $ne: true }, $expr: { $gte: [{ $subtract: [{ $ifNull: ['$tradingBalance', 0] }, { $add: [{ $ifNull: ['$pendingTradingWithdrawals', 0] }, { $ifNull: ['$pendingMaturedWithdrawals', 0] }] }] }, amount] } }).session(session).select('tradingBalance maturedPrincipalBalance lockedCapitalLots').lean().exec();
-        if (!investor) throw new BadRequestException('Your available investment balance is too low for this amount.');
+        const investor = await this.users.findOne({ _id: userId, role: 'user', isDisabled: { $ne: true } }).session(session).select('tradingBalance maturedPrincipalBalance lockedCapitalLots pendingTradingWithdrawals pendingMaturedWithdrawals').lean().exec();
+        if (!investor) throw new BadRequestException('Your account is not available to copy this trade.');
+        const amount = amountUnits(Math.max(0, investor.tradingBalance - (investor.pendingTradingWithdrawals ?? 0) - (investor.pendingMaturedWithdrawals ?? 0))) / TRADE_AMOUNT_SCALE;
+        if (amount < signal.minimumInvestment || amount > signal.maximumInvestment) throw new BadRequestException(`Your full available investment balance must be between ${signal.minimumInvestment} and ${signal.maximumInvestment} USD to copy this trade.`);
         const maturedToReinvest = Math.min(investor.maturedPrincipalBalance ?? 0, amount);
         let lockedToReinvest = amount - maturedToReinvest;
         const remainingLots: Array<{ amount: number; unlockAt: Date }> = [];
@@ -170,6 +197,10 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
           if (lot.amount - used > 1e-8) remainingLots.push({ amount: lot.amount - used, unlockAt: new Date(lot.unlockAt) });
         }
         const investorFilter: Record<string, unknown> = { _id: userId, tradingBalance: investor.tradingBalance };
+        for (const field of ['pendingTradingWithdrawals', 'pendingMaturedWithdrawals'] as const) {
+          const value = investor[field];
+          investorFilter[field] = value === undefined ? { $exists: false } : value;
+        }
         if (investor.maturedPrincipalBalance === undefined) investorFilter.maturedPrincipalBalance = { $exists: false };
         else investorFilter.maturedPrincipalBalance = investor.maturedPrincipalBalance;
         const debited = await this.users.updateOne(investorFilter, { $inc: { tradingBalance: -amount, ...(maturedToReinvest > 0 ? { maturedPrincipalBalance: -maturedToReinvest } : {}) }, $set: { lockedCapitalLots: remainingLots } }, { session }).exec();
@@ -320,7 +351,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
       const session = await this.positions.db.startSession();
       try {
         await session.withTransaction(async () => {
-          const settled = await this.positions.findOneAndUpdate({ _id: item._id, status: { $in: ['active', 'stopped'] }, principalReturnedAt: null }, { $set: { status: 'matured', principalReturnedAt: now } }, { new: true, session }).exec();
+          const settled = await this.positions.findOneAndUpdate({ _id: item._id, status: { $in: ['active', 'stopped'] }, principalReturnedAt: null }, { $set: { status: 'matured', principalReturnedAt: now, principalReturnedAmount: item.principal } }, { new: true, session }).exec();
           if (!settled) return;
           const settings = await this.financeSettings.findOne({ key: 'platform' }).session(session).lean().exec();
           const capitalUnlockAt = new Date(now.getTime() + (settings?.capitalLockDays ?? 60) * DAY_MS);
