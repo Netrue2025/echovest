@@ -263,24 +263,29 @@ function LevelsView() {
   useEffect(() => {
     let active = true;
     referralRequest<ReferralOverview>("me")
-      .then((result) => { if (active) { setOverview(result); setError(""); const index = levels.findIndex((level) => level.name.toLowerCase() === (result.membershipLevel || "blue").trim().toLowerCase()); setSelected(levels[Math.min(Math.max(index, 0) + 1, levels.length - 1)].name); } })
+      .then((result) => { if (active) { setOverview(result); setError(""); const currentIndex = levels.reduce((highest, level, index) => { if (!index) return highest; const requirement = result.membershipLevels.find((item) => item.level === level.name); const referralMet = Boolean(requirement && requirement.requiredDirectReferrals > 0 && result.counts.tier1 >= requirement.requiredDirectReferrals); const capitalMet = Boolean(requirement && requirement.requiredTradingBalance > 0 && result.lockedTradingBalance >= requirement.requiredTradingBalance); return referralMet || capitalMet ? index : highest; }, 0); setSelected(levels[Math.min(currentIndex + 1, levels.length - 1)].name); } })
       .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Membership details are temporarily unavailable."); });
     return () => { active = false; };
   }, []);
 
-  const levelIndex = (name?: string) => Math.max(0, levels.findIndex((level) => level.name.toLowerCase() === (name || "blue").trim().toLowerCase()));
-  const currentIndex = levelIndex(overview?.membershipLevel);
+  const memberCount = overview ? overview.counts.tier1 + overview.counts.tier2 + overview.counts.tier3 : null;
+  const directCount = overview?.counts.tier1 ?? 0;
+  const tradingBalance = overview?.lockedTradingBalance ?? 0;
+  const currentIndex = overview ? levels.reduce((highest, level, index) => {
+    if (index === 0) return highest;
+    const requirement = overview.membershipLevels.find((item) => item.level === level.name);
+    const meetsReferral = Boolean(requirement && requirement.requiredDirectReferrals > 0 && directCount >= requirement.requiredDirectReferrals);
+    const meetsCapital = Boolean(requirement && requirement.requiredTradingBalance > 0 && tradingBalance >= requirement.requiredTradingBalance);
+    return meetsReferral || meetsCapital ? index : highest;
+  }, 0) : 0;
   const current = levels[currentIndex];
   const selectedLevel = levels.find((level) => level.name === selected) ?? levels[Math.min(currentIndex + 1, levels.length - 1)];
   const selectedIndex = levels.findIndex((level) => level.name === selectedLevel.name);
   const isAchieved = selectedIndex <= currentIndex;
   const CurrentIcon = current.icon;
   const SelectedIcon = selectedLevel.icon;
-  const memberCount = overview ? overview.counts.tier1 + overview.counts.tier2 + overview.counts.tier3 : null;
   const tierSettings = overview?.membershipLevels.find((item) => item.level === selectedLevel.name);
   const tierRates = overview?.membershipRates.find((item) => item.level === selectedLevel.name);
-  const directCount = overview?.counts.tier1 ?? 0;
-  const tradingBalance = overview?.lockedTradingBalance ?? 0;
   const directMet = Boolean(tierSettings && tierSettings.requiredDirectReferrals > 0 && directCount >= tierSettings.requiredDirectReferrals);
   const balanceMet = Boolean(tierSettings && tierSettings.requiredTradingBalance > 0 && tradingBalance >= tierSettings.requiredTradingBalance);
   const hasQualification = Boolean(tierSettings && (tierSettings.requiredDirectReferrals > 0 || tierSettings.requiredTradingBalance > 0));
@@ -314,7 +319,7 @@ function LevelsView() {
             {tierSettings?.requiredDirectReferrals ? <div className={`dash-upgrade-route ${directMet ? "met" : ""}`}><span className="dash-upgrade-route-number">01</span><div><h4>Direct referrals</h4><p>{directCount} of {tierSettings.requiredDirectReferrals} direct referrals. Invite people with your referral link; only direct sign-ups count for this requirement.</p><a href="/dashboard?view=referrals">View your referrals <ArrowRight size={15}/></a></div></div> : null}
             {tierSettings?.requiredTradingBalance ? <div className={`dash-upgrade-route ${balanceMet ? "met" : ""}`}><span className="dash-upgrade-route-number">02</span><div><h4>Locked trading balance</h4><p>{money(tradingBalance)} of {money(tierSettings.requiredTradingBalance)} in qualifying locked trading capital.</p><a href="/dashboard?view=wallet">View your wallet <ArrowRight size={15}/></a></div></div> : null}
           </div>}
-          {hasQualification && (directMet || balanceMet) && <p className="dash-membership-achieved"><Check size={17}/>You meet a qualification for this level. Your membership will update as you progress through the levels.</p>}
+          {hasQualification && (directMet || balanceMet) && <p className="dash-membership-achieved"><Check size={17}/>You meet at least one configured requirement for this level.</p>}
         </>}
         <div className="dash-membership-benefits"><div><strong>Withdrawal review</strong><span>{reviewTarget > 0 ? `Target: within ${reviewTarget} hour${reviewTarget === 1 ? "" : "s"}` : "Standard review queue"}</span></div><div><strong>Referral commission</strong><span>{tierRates ? `${tierRates.tier1}% direct · ${tierRates.tier2}% second tier · ${tierRates.tier3}% third tier` : "Rates loading"}</span></div><div><strong>Withdrawal fee</strong><span>{feeDiscount > 0 ? `${feeDiscount} percentage-point reduction from the base rate` : "Standard platform charge"}</span></div></div>
       </section>

@@ -14,6 +14,14 @@ function lockedCapitalTotal(lots?: Array<{ amount: number; unlockAt: Date }>) {
   return (lots ?? []).reduce((total, lot) => total + (new Date(lot.unlockAt).getTime() > now ? lot.amount : 0), 0);
 }
 
+function qualificationCapital(lots: Array<{ amount: number; unlockAt: Date }> | undefined, activeTradePrincipal: number, tradingBalance: number, maturedPrincipalBalance: number) {
+  const lockedLots = lockedCapitalTotal(lots);
+  // Older accounts may predate lockedCapitalLots. Their non-matured trading balance
+  // remains locked by the withdrawal ledger, so use it only when no capital lots exist.
+  if ((!lots || lots.length === 0) && activeTradePrincipal === 0) return Math.max(0, tradingBalance - maturedPrincipalBalance);
+  return lockedLots + activeTradePrincipal;
+}
+
 @Injectable()
 export class ReferralsService {
   constructor(
@@ -30,7 +38,10 @@ export class ReferralsService {
 
   async myOverview(userId: string) { return this.overview(userId); }
   async adminOverview(userId: string) { return this.overview(userId); }
-  async listReferralUsers() { return this.users.find({ role: 'user' }).select('_id fullName membershipLevel').sort({ fullName: 1 }).lean().exec().then((items) => items.map((item) => ({ id: String(item._id), fullName: item.fullName, membershipLevel: item.membershipLevel || 'Blue' }))); }
+  async listReferralUsers() {
+    await this.reconcileAllMembershipLevels();
+    return this.users.find({ role: 'user' }).select('_id fullName membershipLevel').sort({ fullName: 1 }).lean().exec().then((items) => items.map((item) => ({ id: String(item._id), fullName: item.fullName, membershipLevel: item.membershipLevel || 'Blue' })));
+  }
 
   private membershipTiers(configured?: MembershipTier[]) {
     return DEFAULT_MEMBERSHIP_TIERS.map((fallback) => ({ ...fallback, ...(configured?.find((item) => item.level === fallback.level) ?? {}) }));
@@ -75,7 +86,7 @@ export class ReferralsService {
   }
 
   private async reconcileMembershipLevel(userId: string, levels: MembershipTier[], session?: ClientSession): Promise<MembershipLevel> {
-    const userQuery = this.users.findById(userId).select('fullName membershipLevel lockedCapitalLots');
+    const userQuery = this.users.findById(userId).select('fullName membershipLevel lockedCapitalLots tradingBalance maturedPrincipalBalance');
     if (session) userQuery.session(session);
     const user = await userQuery.lean().exec();
     if (!user) return 'Blue';
@@ -84,7 +95,8 @@ export class ReferralsService {
     const positionsQuery = this.positions.find({ userId: id, status: { $in: ['active', 'stopped'] }, principalReturnedAt: null }).select('principal');
     if (session) { directQuery.session(session); positionsQuery.session(session); }
     const [directReferrals, positions] = await Promise.all([directQuery.exec(), positionsQuery.lean().exec()]);
-    const lockedTradingBalance = lockedCapitalTotal(user.lockedCapitalLots) + positions.reduce((total, position) => total + position.principal, 0);
+    const activeTradePrincipal = positions.reduce((total, position) => total + position.principal, 0);
+    const lockedTradingBalance = qualificationCapital(user.lockedCapitalLots, activeTradePrincipal, user.tradingBalance ?? 0, user.maturedPrincipalBalance ?? 0);
     const nextLevel = this.qualifiedLevel(levels, directReferrals, lockedTradingBalance);
     const previous = user.membershipLevel && MEMBERSHIP_LEVELS.includes(user.membershipLevel as MembershipLevel) ? user.membershipLevel as MembershipLevel : 'Blue';
     const qualification = nextLevel === 'Blue' ? 'Blue starting level; no higher-tier requirement is currently met.' : `${directReferrals} direct referrals and ${lockedTradingBalance} USD locked trading capital were checked against configured requirements.`;
@@ -94,7 +106,7 @@ export class ReferralsService {
   async reconcileAllMembershipLevels() {
     const [settings, users, directCounts, activeCapital] = await Promise.all([
       this.config(),
-      this.users.find({ role: 'user' }).select('_id fullName membershipLevel lockedCapitalLots').lean().exec(),
+      this.users.find({ role: 'user' }).select('_id fullName membershipLevel lockedCapitalLots tradingBalance maturedPrincipalBalance').lean().exec(),
       this.users.aggregate<{ _id: Types.ObjectId; count: number }>([{ $match: { role: 'user', referredBy: { $ne: null } } }, { $group: { _id: '$referredBy', count: { $sum: 1 } } }]).exec(),
       this.positions.aggregate<{ _id: Types.ObjectId; total: number }>([{ $match: { status: { $in: ['active', 'stopped'] }, principalReturnedAt: null } }, { $group: { _id: '$userId', total: { $sum: '$principal' } } }]).exec(),
     ]);
@@ -103,7 +115,7 @@ export class ReferralsService {
     const capitalMap = new Map(activeCapital.map((row) => [String(row._id), row.total]));
     for (const user of users) {
       const id = String(user._id);
-      const lockedTradingBalance = lockedCapitalTotal(user.lockedCapitalLots) + (capitalMap.get(id) ?? 0);
+      const lockedTradingBalance = qualificationCapital(user.lockedCapitalLots, capitalMap.get(id) ?? 0, user.tradingBalance ?? 0, user.maturedPrincipalBalance ?? 0);
       const nextLevel = this.qualifiedLevel(levels, referralMap.get(id) ?? 0, lockedTradingBalance);
       const previous = user.membershipLevel && MEMBERSHIP_LEVELS.includes(user.membershipLevel as MembershipLevel) ? user.membershipLevel as MembershipLevel : 'Blue';
       if (previous !== nextLevel || user.membershipLevel !== nextLevel) {
@@ -115,7 +127,7 @@ export class ReferralsService {
   }
 
   private async overview(userId: string) {
-    const user = await this.users.findById(userId).select('fullName referralCode membershipLevel tradingBalance lockedCapitalLots').lean().exec();
+    const user = await this.users.findById(userId).select('fullName referralCode membershipLevel tradingBalance maturedPrincipalBalance lockedCapitalLots').lean().exec();
     if (!user) throw new NotFoundException('Account not found.');
     const referralCode = user.referralCode || await this.ensureCode(userId);
     const [settings, earningsTotal, activePositions] = await Promise.all([
@@ -123,7 +135,8 @@ export class ReferralsService {
       this.earnings.aggregate([{ $match: { referrerId: new Types.ObjectId(userId) } }, { $group: { _id: null, total: { $sum: { $cond: [{ $eq: ['$direction', 'debit'] }, { $multiply: ['$amount', -1] }, '$amount'] } } } }]).exec(),
       this.positions.find({ userId: new Types.ObjectId(userId), status: { $in: ['active', 'stopped'] }, principalReturnedAt: null }).select('principal').lean().exec(),
     ]);
-    const lockedTradingBalance = lockedCapitalTotal(user.lockedCapitalLots) + activePositions.reduce((total, position) => total + position.principal, 0);
+    const activeTradePrincipal = activePositions.reduce((total, position) => total + position.principal, 0);
+    const lockedTradingBalance = qualificationCapital(user.lockedCapitalLots, activeTradePrincipal, user.tradingBalance ?? 0, user.maturedPrincipalBalance ?? 0);
 
     const members: Array<{ id: string; fullName: string; tier: number; joinedAt?: Date; earned: number }> = [];
     let parentIds = [new Types.ObjectId(userId)];

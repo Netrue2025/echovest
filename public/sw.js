@@ -18,7 +18,6 @@ self.addEventListener("push", (event) => {
   const options = {
     body: message.body || "You have a new account notification.",
     icon: "/icons/echovest-192.png",
-    badge: "/icons/echovest-192.png",
     tag: message.notificationId || `echovest-${Date.now()}`,
     data: { url: message.url || "/dashboard?view=notifications" },
   };
