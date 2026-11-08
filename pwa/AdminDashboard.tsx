@@ -83,7 +83,8 @@ const sectionPlaceholder: Record<string, string> = {
 const membershipLevels = ["Blue", "Elite", "Silver", "Gold", "Platinum"];
 function MembershipBadge({ level, directReferralCount, qualifyingTradingCapital }: { level?: string; directReferralCount?: number; qualifyingTradingCapital?: number }) {
   const normalized = membershipLevels.includes(level ?? "") ? level! : "Blue";
-  return <span className="admin-membership-cell" title={`${directReferralCount ?? 0} direct referrals · $${Number(qualifyingTradingCapital ?? 0).toFixed(2)} qualifying locked trading capital`}><span className={`admin-membership-badge admin-membership-${normalized.toLowerCase()}`}><Award size={13} aria-hidden="true" />{normalized}</span><small>{directReferralCount ?? 0} direct</small></span>;
+  const referralCount = Number.isFinite(Number(directReferralCount)) ? Number(directReferralCount) : 0;
+  return <span className="admin-membership-cell" title={`${referralCount} direct referrals · $${Number(qualifyingTradingCapital ?? 0).toFixed(2)} qualifying locked trading capital`}><span className={`admin-membership-badge admin-membership-${normalized.toLowerCase()}`}><Award size={13} aria-hidden="true" />{normalized}</span><span className="admin-membership-referrals"><strong>{referralCount}</strong><span>direct referrals</span></span></span>;
 }
 
 type BeforeInstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
