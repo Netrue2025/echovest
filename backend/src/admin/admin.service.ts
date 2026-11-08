@@ -54,10 +54,14 @@ export class AdminService implements OnModuleInit {
     return { user: { id: String(user._id), fullName: user.fullName, email: user.email, isSuperAdmin: user.isSuperAdmin ?? false, permissions: user.adminPermissions ?? [] }, session };
   }
   async listUsers() {
-    await this.referrals.reconcileAllMembershipLevels();
+    const qualifications = await this.referrals.reconcileAllMembershipLevels();
     const docs = await this.users.listAll();
     const totals = await this.withdrawalTotalsByUser(docs.map((user) => user._id as Types.ObjectId));
-    return docs.map((user) => ({ id: String(user._id), fullName: user.fullName, email: user.email, role: user.role, membershipLevel: user.membershipLevel || 'Blue', isSuperAdmin: user.isSuperAdmin ?? false, isEmailVerified: user.isEmailVerified, isDisabled: user.isDisabled ?? false, withdrawalsDisabled: user.withdrawalsDisabled ?? false, tradingBalance: user.tradingBalance ?? 0, referralBalance: user.referralBalance ?? 0, totalWithdrawn: totals.get(String(user._id))?.amount ?? 0, withdrawalCount: totals.get(String(user._id))?.count ?? 0, createdAt: user.createdAt }));
+    return docs.map((user) => {
+      const id = String(user._id);
+      const qualification = qualifications.get(id);
+      return { id, fullName: user.fullName, email: user.email, role: user.role, membershipLevel: qualification?.level ?? user.membershipLevel ?? 'Blue', directReferralCount: qualification?.directReferrals ?? 0, qualifyingTradingCapital: qualification?.lockedTradingBalance ?? 0, isSuperAdmin: user.isSuperAdmin ?? false, isEmailVerified: user.isEmailVerified, isDisabled: user.isDisabled ?? false, withdrawalsDisabled: user.withdrawalsDisabled ?? false, tradingBalance: user.tradingBalance ?? 0, referralBalance: user.referralBalance ?? 0, totalWithdrawn: totals.get(id)?.amount ?? 0, withdrawalCount: totals.get(id)?.count ?? 0, createdAt: user.createdAt };
+    });
   }
   private async withdrawalTotalsByUser(userIds?: Types.ObjectId[]) {
     const match: Record<string, unknown> = { type: 'withdrawal', status: 'approved', archivedAt: { $exists: false } };
