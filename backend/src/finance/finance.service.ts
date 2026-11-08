@@ -82,7 +82,7 @@ export class FinanceService {
     const lockedCapitalLots = user.lockedCapitalLots ?? [];
     const lockedCapital = lockedCapitalLots.reduce((total, lot) => total + lot.amount, 0);
     const nextCapitalUnlockAt = lockedCapitalLots.reduce<Date | null>((earliest, lot) => !earliest || new Date(lot.unlockAt).getTime() < earliest.getTime() ? new Date(lot.unlockAt) : earliest, null);
-    const membershipBenefit = await this.referrals.membershipBenefits(user.membershipLevel);
+    const membershipBenefit = await this.referrals.membershipBenefits(user.membershipLevel, undefined, userId);
     return { membership: { level: membershipBenefit.level, withdrawalReviewHours: membershipBenefit.withdrawalReviewHours, withdrawalFeeDiscountPercent: membershipBenefit.withdrawalFeeDiscountPercent }, balances: { trading, referral, availableTrading: Math.max(0, trading - (user.pendingTradingWithdrawals ?? 0) - pendingMatured), maturedPrincipal, availableMaturedPrincipal: Math.max(0, maturedPrincipal - pendingMatured), lockedCapital, nextCapitalUnlockAt, capitalLockDays: settings?.capitalLockDays ?? 60, availableReferral: Math.max(0, referral - (user.pendingReferralWithdrawals ?? 0)), totalProfitEarned, availableProfit: availableProfitUnits / 100_000_000 }, dailyPnl: Math.round(dailyPnl * TRADE_AMOUNT_SCALE) / TRADE_AMOUNT_SCALE, transactions };
   }
   async settleMaturedCapital(userId?: string) {
@@ -142,7 +142,7 @@ export class FinanceService {
     const held = await this.users.findOneAndUpdate({ _id: userId, isDisabled: { $ne: true }, withdrawalsDisabled: { $ne: true }, $expr: availability }, { $inc: { [pendingField]: input.amount } }, { new: true }).lean().exec();
     if (!held) throw new BadRequestException('The amount exceeds your available balance.');
     try {
-      const membershipBenefit = await this.referrals.membershipBenefits(user.membershipLevel);
+      const membershipBenefit = await this.referrals.membershipBenefits(user.membershipLevel, undefined, userId);
       const effectiveFeePercent = Math.max(0, (s?.withdrawalFeePercent ?? 0) - membershipBenefit.withdrawalFeeDiscountPercent);
       const withdrawalFee = Math.round((input.amount * effectiveFeePercent / 100 + (s?.withdrawalFeeFixed ?? 0)) * 1e8) / 1e8;
       const payoutAmount = Math.round((input.amount - withdrawalFee) * 1e8) / 1e8;

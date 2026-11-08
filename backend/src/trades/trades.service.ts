@@ -261,7 +261,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
         if (!updatedPosition) throw new ConflictException('Interest balance changed. Refresh and try again.');
         const user = await this.users.findOne({ _id: userId, role: 'user', isDisabled: { $ne: true }, withdrawalsDisabled: { $ne: true } }).session(session).select('_id membershipLevel').lean().exec();
         if (!user) throw new NotFoundException('Account not found or withdrawals are disabled.');
-        const membershipBenefit = await this.referrals.membershipBenefits(user.membershipLevel, session);
+        const membershipBenefit = await this.referrals.membershipBenefits(user.membershipLevel, session, userId);
           const effectiveFeePercent = Math.max(0, (withdrawalSettings?.withdrawalFeePercent ?? 0) - membershipBenefit.withdrawalFeeDiscountPercent);
         const withdrawalFee = Math.round((amount * effectiveFeePercent / 100 + (withdrawalSettings?.withdrawalFeeFixed ?? 0)) * 1e8) / 1e8;
         const payoutAmount = Math.round((amount - withdrawalFee) * 1e8) / 1e8;
@@ -324,7 +324,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
           throw new BadRequestException(`Available profit from closed trades is ${(availableUnits / TRADE_AMOUNT_SCALE).toFixed(8)} USD. Refresh the balance and try again.`);
         }
 
-        const membershipBenefit = await this.referrals.membershipBenefits(user.membershipLevel, session);
+        const membershipBenefit = await this.referrals.membershipBenefits(user.membershipLevel, session, userId);
         const effectiveFeePercent = Math.max(0, (settings?.withdrawalFeePercent ?? 0) - membershipBenefit.withdrawalFeeDiscountPercent);
         const withdrawalFee = Math.round((amount * effectiveFeePercent / 100 + (settings?.withdrawalFeeFixed ?? 0)) * 1e8) / 1e8;
         const payoutAmount = Math.round((amount - withdrawalFee) * 1e8) / 1e8;

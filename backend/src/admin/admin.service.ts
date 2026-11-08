@@ -13,6 +13,7 @@ import { AdminAudit } from './admin-audit.schema.js';
 import { User } from '../users/user.schema.js';
 import { FinanceTransaction } from '../finance/finance.schema.js';
 import { ProviderDeposit } from '../deposits/provider-deposit.schema.js';
+import { ReferralsService } from '../referrals/referrals.service.js';
 
 export type AdminActor = { id: string; email: string; isSuperAdmin?: boolean };
 
@@ -31,6 +32,7 @@ export class AdminService implements OnModuleInit {
     @InjectModel(FinanceTransaction.name) private readonly transactions: Model<FinanceTransaction>,
     @InjectModel(ProviderDeposit.name) private readonly providerDeposits: Model<ProviderDeposit>,
     @InjectConnection() private readonly connection: Connection,
+    private readonly referrals: ReferralsService,
   ) {}
   async onModuleInit() {
     const email = this.config.get<string>('SUPER_ADMIN_EMAIL')?.trim().toLowerCase();
@@ -52,9 +54,10 @@ export class AdminService implements OnModuleInit {
     return { user: { id: String(user._id), fullName: user.fullName, email: user.email, isSuperAdmin: user.isSuperAdmin ?? false, permissions: user.adminPermissions ?? [] }, session };
   }
   async listUsers() {
+    await this.referrals.reconcileAllMembershipLevels();
     const docs = await this.users.listAll();
     const totals = await this.withdrawalTotalsByUser(docs.map((user) => user._id as Types.ObjectId));
-    return docs.map((user) => ({ id: String(user._id), fullName: user.fullName, email: user.email, role: user.role, isSuperAdmin: user.isSuperAdmin ?? false, isEmailVerified: user.isEmailVerified, isDisabled: user.isDisabled ?? false, withdrawalsDisabled: user.withdrawalsDisabled ?? false, tradingBalance: user.tradingBalance ?? 0, referralBalance: user.referralBalance ?? 0, totalWithdrawn: totals.get(String(user._id))?.amount ?? 0, withdrawalCount: totals.get(String(user._id))?.count ?? 0, createdAt: user.createdAt }));
+    return docs.map((user) => ({ id: String(user._id), fullName: user.fullName, email: user.email, role: user.role, membershipLevel: user.membershipLevel || 'Blue', isSuperAdmin: user.isSuperAdmin ?? false, isEmailVerified: user.isEmailVerified, isDisabled: user.isDisabled ?? false, withdrawalsDisabled: user.withdrawalsDisabled ?? false, tradingBalance: user.tradingBalance ?? 0, referralBalance: user.referralBalance ?? 0, totalWithdrawn: totals.get(String(user._id))?.amount ?? 0, withdrawalCount: totals.get(String(user._id))?.count ?? 0, createdAt: user.createdAt }));
   }
   private async withdrawalTotalsByUser(userIds?: Types.ObjectId[]) {
     const match: Record<string, unknown> = { type: 'withdrawal', status: 'approved', archivedAt: { $exists: false } };

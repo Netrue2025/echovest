@@ -14,7 +14,7 @@ export class UsersService {
   findByEmailById(id: string) { return this.users.findById(id).exec(); }
   create(data: Pick<User, 'fullName' | 'email' | 'passwordHash'>, referredBy?: User['_id']) {
     const referralCode = `EV${randomBytes(6).toString('hex').toUpperCase()}`;
-    return this.users.create({ ...data, referralCode, ...(referredBy ? { referredBy } : {}), email: data.email.trim().toLowerCase() });
+    return this.users.create({ ...data, membershipLevel: 'Blue', referralCode, ...(referredBy ? { referredBy } : {}), email: data.email.trim().toLowerCase() });
   }
   findByReferralCode(code: string) { return this.users.findOne({ referralCode: code.trim().toUpperCase() }).exec(); }
   async ensureReferralCode(userId: string) {

@@ -9,6 +9,11 @@ import { DEFAULT_MEMBERSHIP_TIERS, DEFAULT_REFERRAL_RATES, MEMBERSHIP_LEVELS, Me
 type Actor = { id: string; email: string };
 type CreditedReferral = { userId: string; amount: number; tier: number };
 
+function lockedCapitalTotal(lots?: Array<{ amount: number; unlockAt: Date }>) {
+  const now = Date.now();
+  return (lots ?? []).reduce((total, lot) => total + (new Date(lot.unlockAt).getTime() > now ? lot.amount : 0), 0);
+}
+
 @Injectable()
 export class ReferralsService {
   constructor(
@@ -23,7 +28,7 @@ export class ReferralsService {
     return this.settings.findOneAndUpdate({ key: 'platform' }, { $setOnInsert: { key: 'platform', rates: DEFAULT_REFERRAL_RATES, levels: DEFAULT_MEMBERSHIP_TIERS } }, { upsert: true, new: true, setDefaultsOnInsert: true }).lean().exec();
   }
 
-  async myOverview(userId: string) { return this.overview(userId, true); }
+  async myOverview(userId: string) { return this.overview(userId); }
   async adminOverview(userId: string) { return this.overview(userId); }
   async listReferralUsers() { return this.users.find({ role: 'user' }).select('_id fullName membershipLevel').sort({ fullName: 1 }).lean().exec().then((items) => items.map((item) => ({ id: String(item._id), fullName: item.fullName, membershipLevel: item.membershipLevel || 'Blue' }))); }
 
@@ -31,15 +36,85 @@ export class ReferralsService {
     return DEFAULT_MEMBERSHIP_TIERS.map((fallback) => ({ ...fallback, ...(configured?.find((item) => item.level === fallback.level) ?? {}) }));
   }
 
-  async membershipBenefits(level?: string, session?: ClientSession) {
+  async membershipBenefits(level?: string, session?: ClientSession, userId?: string) {
     const query = this.settings.findOne({ key: 'platform' });
     if (session) query.session(session);
     const settings = await query.lean().exec();
-    const normalizedLevel = MEMBERSHIP_LEVELS.includes((level || 'Blue') as MembershipLevel) ? (level || 'Blue') as MembershipLevel : 'Blue';
+    const normalizedLevel = userId
+      ? await this.reconcileMembershipLevel(userId, this.membershipTiers(settings?.levels), session)
+      : MEMBERSHIP_LEVELS.includes((level || 'Blue') as MembershipLevel) ? (level || 'Blue') as MembershipLevel : 'Blue';
     return this.membershipTiers(settings?.levels).find((item) => item.level === normalizedLevel) ?? DEFAULT_MEMBERSHIP_TIERS[0];
   }
 
-  private async overview(userId: string, promote = false) {
+  private qualifiedLevel(levels: MembershipTier[], directReferrals: number, lockedTradingBalance: number): MembershipLevel {
+    let qualified: MembershipLevel = 'Blue';
+    for (const level of MEMBERSHIP_LEVELS.slice(1)) {
+      const requirement = levels.find((item) => item.level === level);
+      if (!requirement) continue;
+      const meetsReferralCriterion = requirement.requiredDirectReferrals > 0 && directReferrals >= requirement.requiredDirectReferrals;
+      const meetsBalanceCriterion = requirement.requiredTradingBalance > 0 && lockedTradingBalance >= requirement.requiredTradingBalance;
+      if (meetsReferralCriterion || meetsBalanceCriterion) qualified = level;
+    }
+    return qualified;
+  }
+
+  private async saveMembershipLevel(user: { _id: unknown; fullName?: string; membershipLevel?: string | null }, nextLevel: MembershipLevel, detail: string, session?: ClientSession) {
+    const current = user.membershipLevel && MEMBERSHIP_LEVELS.includes(user.membershipLevel as MembershipLevel) ? user.membershipLevel as MembershipLevel : 'Blue';
+    if (current === nextLevel && user.membershipLevel === nextLevel) return nextLevel;
+    const previousFilter = user.membershipLevel == null
+      ? { $or: [{ membershipLevel: { $exists: false } }, { membershipLevel: null }] }
+      : { membershipLevel: user.membershipLevel };
+    const changed = await this.users.updateOne({ _id: user._id, ...previousFilter }, { $set: { membershipLevel: nextLevel } }, session ? { session } : {}).exec();
+    if (changed.matchedCount) {
+      const action = MEMBERSHIP_LEVELS.indexOf(nextLevel) > MEMBERSHIP_LEVELS.indexOf(current) ? 'membership.level.upgraded' : 'membership.level.downgraded';
+      await this.audit.create([{ actorId: 'system', actorEmail: 'system', action, targetType: 'user', targetId: String(user._id), targetLabel: user.fullName ?? String(user._id), detail }], session ? { session } : {});
+      return nextLevel;
+    }
+    const latest = await this.users.findById(user._id).select('membershipLevel').session(session ?? null).lean().exec();
+    return latest?.membershipLevel && MEMBERSHIP_LEVELS.includes(latest.membershipLevel as MembershipLevel) ? latest.membershipLevel as MembershipLevel : 'Blue';
+  }
+
+  private async reconcileMembershipLevel(userId: string, levels: MembershipTier[], session?: ClientSession): Promise<MembershipLevel> {
+    const userQuery = this.users.findById(userId).select('fullName membershipLevel lockedCapitalLots');
+    if (session) userQuery.session(session);
+    const user = await userQuery.lean().exec();
+    if (!user) return 'Blue';
+    const id = new Types.ObjectId(userId);
+    const directQuery = this.users.countDocuments({ referredBy: id, role: 'user' });
+    const positionsQuery = this.positions.find({ userId: id, status: { $in: ['active', 'stopped'] }, principalReturnedAt: null }).select('principal');
+    if (session) { directQuery.session(session); positionsQuery.session(session); }
+    const [directReferrals, positions] = await Promise.all([directQuery.exec(), positionsQuery.lean().exec()]);
+    const lockedTradingBalance = lockedCapitalTotal(user.lockedCapitalLots) + positions.reduce((total, position) => total + position.principal, 0);
+    const nextLevel = this.qualifiedLevel(levels, directReferrals, lockedTradingBalance);
+    const previous = user.membershipLevel && MEMBERSHIP_LEVELS.includes(user.membershipLevel as MembershipLevel) ? user.membershipLevel as MembershipLevel : 'Blue';
+    const qualification = nextLevel === 'Blue' ? 'Blue starting level; no higher-tier requirement is currently met.' : `${directReferrals} direct referrals and ${lockedTradingBalance} USD locked trading capital were checked against configured requirements.`;
+    return this.saveMembershipLevel(user, nextLevel, `Membership changed from ${previous} to ${nextLevel}. ${qualification}`, session);
+  }
+
+  async reconcileAllMembershipLevels() {
+    const [settings, users, directCounts, activeCapital] = await Promise.all([
+      this.config(),
+      this.users.find({ role: 'user' }).select('_id fullName membershipLevel lockedCapitalLots').lean().exec(),
+      this.users.aggregate<{ _id: Types.ObjectId; count: number }>([{ $match: { role: 'user', referredBy: { $ne: null } } }, { $group: { _id: '$referredBy', count: { $sum: 1 } } }]).exec(),
+      this.positions.aggregate<{ _id: Types.ObjectId; total: number }>([{ $match: { status: { $in: ['active', 'stopped'] }, principalReturnedAt: null } }, { $group: { _id: '$userId', total: { $sum: '$principal' } } }]).exec(),
+    ]);
+    const levels = this.membershipTiers(settings?.levels);
+    const referralMap = new Map(directCounts.map((row) => [String(row._id), row.count]));
+    const capitalMap = new Map(activeCapital.map((row) => [String(row._id), row.total]));
+    for (const user of users) {
+      const id = String(user._id);
+      const lockedTradingBalance = lockedCapitalTotal(user.lockedCapitalLots) + (capitalMap.get(id) ?? 0);
+      const nextLevel = this.qualifiedLevel(levels, referralMap.get(id) ?? 0, lockedTradingBalance);
+      const previous = user.membershipLevel && MEMBERSHIP_LEVELS.includes(user.membershipLevel as MembershipLevel) ? user.membershipLevel as MembershipLevel : 'Blue';
+      if (previous !== nextLevel || user.membershipLevel !== nextLevel) {
+        const qualification = nextLevel === 'Blue' ? 'No higher-tier requirement is currently met.' : `${referralMap.get(id) ?? 0} direct referrals and ${lockedTradingBalance} USD locked trading capital were checked against configured requirements.`;
+        await this.saveMembershipLevel(user, nextLevel, `Membership changed from ${previous} to ${nextLevel}. ${qualification}`, undefined);
+      }
+    }
+    return users.length;
+  }
+
+  private async overview(userId: string) {
     const user = await this.users.findById(userId).select('fullName referralCode membershipLevel tradingBalance lockedCapitalLots').lean().exec();
     if (!user) throw new NotFoundException('Account not found.');
     const referralCode = user.referralCode || await this.ensureCode(userId);
@@ -48,7 +123,7 @@ export class ReferralsService {
       this.earnings.aggregate([{ $match: { referrerId: new Types.ObjectId(userId) } }, { $group: { _id: null, total: { $sum: { $cond: [{ $eq: ['$direction', 'debit'] }, { $multiply: ['$amount', -1] }, '$amount'] } } } }]).exec(),
       this.positions.find({ userId: new Types.ObjectId(userId), status: { $in: ['active', 'stopped'] }, principalReturnedAt: null }).select('principal').lean().exec(),
     ]);
-    const lockedTradingBalance = (user.lockedCapitalLots ?? []).reduce((total, lot) => total + lot.amount, 0) + activePositions.reduce((total, position) => total + position.principal, 0);
+    const lockedTradingBalance = lockedCapitalTotal(user.lockedCapitalLots) + activePositions.reduce((total, position) => total + position.principal, 0);
 
     const members: Array<{ id: string; fullName: string; tier: number; joinedAt?: Date; earned: number }> = [];
     let parentIds = [new Types.ObjectId(userId)];
@@ -68,23 +143,7 @@ export class ReferralsService {
     }
     const counts = { tier1: members.filter((member) => member.tier === 1).length, tier2: members.filter((member) => member.tier === 2).length, tier3: members.filter((member) => member.tier === 3).length };
     const levels = this.membershipTiers(settings?.levels);
-    let level = (MEMBERSHIP_LEVELS.includes((user.membershipLevel || 'Blue') as MembershipLevel) ? user.membershipLevel : 'Blue') as MembershipLevel;
-    if (promote) {
-      let levelIndex = MEMBERSHIP_LEVELS.indexOf(level);
-      while (levelIndex < MEMBERSHIP_LEVELS.length - 1) {
-        const nextLevel = MEMBERSHIP_LEVELS[levelIndex + 1];
-        const requirement = levels.find((item) => item.level === nextLevel)!;
-        const meetsReferralCriterion = requirement.requiredDirectReferrals > 0 && counts.tier1 >= requirement.requiredDirectReferrals;
-        const meetsBalanceCriterion = requirement.requiredTradingBalance > 0 && lockedTradingBalance >= requirement.requiredTradingBalance;
-        if (!meetsReferralCriterion && !meetsBalanceCriterion) break;
-        const levelFilter = level === 'Blue' ? { _id: user._id, $or: [{ membershipLevel: 'Blue' }, { membershipLevel: { $exists: false } }, { membershipLevel: null }] } : { _id: user._id, membershipLevel: level };
-        const upgraded = await this.users.updateOne(levelFilter, { $set: { membershipLevel: nextLevel } }).exec();
-        if (!upgraded.matchedCount) break;
-        await this.audit.create({ actorId: 'system', actorEmail: 'system', action: 'membership.level.upgraded', targetType: 'user', targetId: userId, targetLabel: user.fullName, detail: `Membership upgraded from ${level} to ${nextLevel}; qualification met through ${meetsReferralCriterion ? `${counts.tier1} direct referrals` : `locked investment balance of ${lockedTradingBalance} USD`}.` });
-        level = nextLevel;
-        levelIndex += 1;
-      }
-    }
+    const level = await this.saveMembershipLevel(user, this.qualifiedLevel(levels, counts.tier1, lockedTradingBalance), `Membership reconciled from ${user.membershipLevel || 'Blue'} to ${this.qualifiedLevel(levels, counts.tier1, lockedTradingBalance)}; verified ${counts.tier1} direct referrals and ${lockedTradingBalance} USD locked trading capital against configured criteria.`);
     const currentRates = settings?.rates?.find((row) => row.level === level) ?? DEFAULT_REFERRAL_RATES[0];
     return {
       referralCode,
@@ -130,6 +189,7 @@ export class ReferralsService {
     const result = await this.settings.findOneAndUpdate({ key: 'platform' }, { $set: { rates: ordered, levels: orderedLevels } }, { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }).lean().exec();
     const detail = orderedLevels.map((tier, index) => `${tier.level}: ${tier.requiredDirectReferrals} direct referrals or ${tier.requiredTradingBalance} USD locked balance; ${tier.withdrawalReviewHours || 'standard'}h withdrawal review target; ${tier.withdrawalFeeDiscountPercent} percentage-point withdrawal fee reduction; referral commission ${ordered[index].tier1}/${ordered[index].tier2}/${ordered[index].tier3}%.`).join(' | ');
     await this.audit.create({ actorId: actor.id, actorEmail: actor.email, action: 'membership.settings.updated', targetType: 'referrals', targetId: 'platform', targetLabel: 'Membership levels', detail });
+    await this.reconcileAllMembershipLevels();
     return { rates: result?.rates ?? ordered, levels: this.membershipTiers(result?.levels ?? orderedLevels) };
   }
 
@@ -168,7 +228,7 @@ export class ReferralsService {
       const referrerId = source.referredBy;
       const referrer = await this.users.findById(referrerId).select('role isDisabled membershipLevel referredBy email').session(session).lean().exec();
       if (!referrer || referrer.role !== 'user') break;
-      const level = (referrer.membershipLevel || 'Blue') as MembershipLevel;
+      const level = await this.reconcileMembershipLevel(String(referrerId), this.membershipTiers(settings?.levels), session);
       const row = rates.find((item) => item.level === level);
       const rate = row?.[`tier${tier}` as 'tier1' | 'tier2' | 'tier3'] ?? 0;
       const amount = Math.floor((sourceAmount * rate / 100) * 1e8) / 1e8;
