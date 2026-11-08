@@ -53,7 +53,17 @@ export class AdminService implements OnModuleInit {
   }
   async listUsers() {
     const docs = await this.users.listAll();
-    return docs.map((user) => ({ id: String(user._id), fullName: user.fullName, email: user.email, role: user.role, isSuperAdmin: user.isSuperAdmin ?? false, isEmailVerified: user.isEmailVerified, isDisabled: user.isDisabled ?? false, withdrawalsDisabled: user.withdrawalsDisabled ?? false, tradingBalance: user.tradingBalance ?? 0, referralBalance: user.referralBalance ?? 0, createdAt: user.createdAt }));
+    const totals = await this.withdrawalTotalsByUser(docs.map((user) => user._id as Types.ObjectId));
+    return docs.map((user) => ({ id: String(user._id), fullName: user.fullName, email: user.email, role: user.role, isSuperAdmin: user.isSuperAdmin ?? false, isEmailVerified: user.isEmailVerified, isDisabled: user.isDisabled ?? false, withdrawalsDisabled: user.withdrawalsDisabled ?? false, tradingBalance: user.tradingBalance ?? 0, referralBalance: user.referralBalance ?? 0, totalWithdrawn: totals.get(String(user._id))?.amount ?? 0, withdrawalCount: totals.get(String(user._id))?.count ?? 0, createdAt: user.createdAt }));
+  }
+  private async withdrawalTotalsByUser(userIds?: Types.ObjectId[]) {
+    const match: Record<string, unknown> = { type: 'withdrawal', status: 'approved', archivedAt: { $exists: false } };
+    if (userIds) match.userId = { $in: userIds };
+    const rows = await this.transactions.aggregate<{ _id: Types.ObjectId; amount: number; count: number }>([
+      { $match: match },
+      { $group: { _id: '$userId', amount: { $sum: '$amount' }, count: { $sum: 1 } } },
+    ]).exec();
+    return new Map(rows.map((row) => [String(row._id), { amount: Number(row.amount ?? 0), count: Number(row.count ?? 0) }]));
   }
   async overview(days = 30) {
     if (![7, 30, 90, 365].includes(days)) throw new BadRequestException('Choose a supported overview period.');
@@ -78,7 +88,8 @@ export class AdminService implements OnModuleInit {
   }
   async listUserBalances() {
     const users = await this.userModel.find({ role: 'user' }).select('fullName email tradingBalance referralBalance createdAt').sort({ createdAt: -1 }).lean().exec();
-    const rows = users.map((user) => ({ id: String(user._id), fullName: user.fullName, email: user.email, tradingBalance: user.tradingBalance ?? 0, referralBalance: user.referralBalance ?? 0, total: (user.tradingBalance ?? 0) + (user.referralBalance ?? 0), createdAt: user.createdAt }));
+    const totals = await this.withdrawalTotalsByUser(users.map((user) => user._id as Types.ObjectId));
+    const rows = users.map((user) => ({ id: String(user._id), fullName: user.fullName, email: user.email, tradingBalance: user.tradingBalance ?? 0, referralBalance: user.referralBalance ?? 0, total: (user.tradingBalance ?? 0) + (user.referralBalance ?? 0), totalWithdrawn: totals.get(String(user._id))?.amount ?? 0, withdrawalCount: totals.get(String(user._id))?.count ?? 0, createdAt: user.createdAt }));
     return { users: rows, totalTrading: rows.reduce((sum, user) => sum + user.tradingBalance, 0), totalReferral: rows.reduce((sum, user) => sum + user.referralBalance, 0), totalBalance: rows.reduce((sum, user) => sum + user.total, 0) };
   }
   async adjustUserBalance(id: string, input: { wallet: 'trading' | 'referral'; direction: 'credit' | 'debit'; amount: number; reason: string }, actor: AdminActor) {
