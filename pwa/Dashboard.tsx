@@ -356,6 +356,7 @@ export function Dashboard({ initialView = "overview" }: { initialView?: string }
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const [email, setEmail] = useState("");
+  const [userId, setUserId] = useState("");
   const [userName, setUserName] = useState("");
   const [finance, setFinance] = useState<FinanceSummary>(emptyFinance);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -385,6 +386,7 @@ export function Dashboard({ initialView = "overview" }: { initialView?: string }
     let active = true;
     authRequest<{ user: AuthUser }>("me").then(({ user }) => {
       if (!active) return;
+      setUserId(user.id);
       setEmail(user.email);
       setUserName(user.fullName);
       setReady(true);
@@ -405,7 +407,7 @@ export function Dashboard({ initialView = "overview" }: { initialView?: string }
   }
   if (!ready) return <AppPreloader label="Loading your account..." />;
   const refreshFinance = () => { void financeRequest<FinanceSummary>("me").then(setFinance).catch(() => undefined); };
-  const activeContent = active === "wallet" ? <WalletView finance={finance} /> : active === "deposit" ? <DepositView /> : active === "withdraw" ? <WithdrawalView /> : active === "notifications" ? <NotificationsPage /> : active === "trading" ? <TradingView balance={finance.balances.availableTrading} onBalanceUpdated={refreshFinance} /> : active === "referrals" ? <ReferralsView balance={finance.balances.referral} /> : active === "levels" ? <LevelsView /> : active === "transactions" ? <TransactionsView finance={finance} /> : active === "settings" ? <SettingsView email={email} name={userName} onSignOut={signOut} /> : active === "help" ? <HelpView /> : <Overview email={email} name={userName} finance={finance} onBalanceUpdated={refreshFinance} />;
+  const activeContent = active === "wallet" ? <WalletView finance={finance} /> : active === "deposit" ? <DepositView userId={userId} /> : active === "withdraw" ? <WithdrawalView /> : active === "notifications" ? <NotificationsPage /> : active === "trading" ? <TradingView balance={finance.balances.availableTrading} onBalanceUpdated={refreshFinance} /> : active === "referrals" ? <ReferralsView balance={finance.balances.referral} /> : active === "levels" ? <LevelsView /> : active === "transactions" ? <TransactionsView finance={finance} /> : active === "settings" ? <SettingsView email={email} name={userName} onSignOut={signOut} /> : active === "help" ? <HelpView /> : <Overview email={email} name={userName} finance={finance} onBalanceUpdated={refreshFinance} />;
   const initials = userName ? userName.slice(0, 1).toUpperCase() : email ? email.slice(0, 1).toUpperCase() : "U";
   return <NotificationProvider><div className="dash-app" onClick={navigateWithinDashboard}>
     {withdrawalSecurity && !withdrawalSecurity.configured && <WithdrawalSecurityPrompt onComplete={setWithdrawalSecurity} />}
