@@ -9,7 +9,7 @@ import { AuthSuccess } from './AuthSuccess';
 
 const numberFormat = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
 type MockStatus = 'pending' | 'confirmed' | 'failed' | 'invalid';
-type DepositDraft = { amount: string; step: 'amount' | 'address'; txid?: string };
+type DepositDraft = { amount: string; step: 'amount' | 'address'; txid?: string; wallet?: { address: string; network: string } };
 
 export function DepositView({ userId }: { userId: string }) {
   const [step, setStep] = useState<'amount' | 'address'>('amount');
@@ -36,14 +36,24 @@ export function DepositView({ userId }: { userId: string }) {
   }
 
   const refresh = useCallback(async () => {
-    const data = await walletRequest<DepositDetails>('wallet/deposit-address?asset=USDT&network=TRON');
+    let preferred: DepositDraft['wallet'];
+    try { const draft = JSON.parse(window.localStorage.getItem(draftKey) ?? 'null') as DepositDraft | null; preferred = draft?.wallet; } catch { /* Server will select a fresh wallet if the saved draft cannot be read. */ }
+    const selection = preferred ? `&wallet=${encodeURIComponent(preferred.address)}&walletNetwork=${encodeURIComponent(preferred.network)}` : '';
+    const data = await walletRequest<DepositDetails>(`wallet/deposit-address?asset=USDT&network=TRON${selection}`);
+    if (data.mode === 'manual' && data.account.address && data.depositNetwork) {
+      const chosen = { address: data.account.address, network: data.depositNetwork };
+      try {
+        const raw = JSON.parse(window.localStorage.getItem(draftKey) ?? 'null') as DepositDraft | null;
+        if (raw?.step === 'address') window.localStorage.setItem(draftKey, JSON.stringify({ ...raw, wallet: chosen }));
+      } catch { /* Deposit can continue for this session even if storage is unavailable. */ }
+    }
     setDetails(data);
     if (data.account.status === 'active' && data.account.address) {
       const qrCode = await import('qrcode');
       setQr(await qrCode.toDataURL(data.account.address, { width: 190, margin: 1, color: { dark: '#111827', light: '#ffffff' } }));
     } else setQr('');
     return data;
-  }, []);
+  }, [draftKey]);
 
   useEffect(() => {
     if (!draftKey) return;
@@ -53,7 +63,7 @@ export function DepositView({ userId }: { userId: string }) {
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<DepositDraft>;
         if (typeof parsed.amount === 'string' && (parsed.step === 'amount' || parsed.step === 'address')) {
-          draft = { amount: parsed.amount, step: parsed.step, txid: typeof parsed.txid === 'string' ? parsed.txid : '' };
+          draft = { amount: parsed.amount, step: parsed.step, txid: typeof parsed.txid === 'string' ? parsed.txid : '', wallet: parsed.wallet && typeof parsed.wallet.address === 'string' && typeof parsed.wallet.network === 'string' ? parsed.wallet : undefined };
         }
       }
     } catch { try { window.localStorage.removeItem(draftKey); } catch { /* Ignore unavailable storage. */ } }
@@ -97,7 +107,8 @@ export function DepositView({ userId }: { userId: string }) {
         setError('Your deposit address is not ready yet. Please try again shortly.');
         return;
       }
-      saveDraft({ amount, step: 'address', txid });
+      const chosen = data.mode === 'manual' ? { address: data.account.address, network: data.depositNetwork ?? '' } : undefined;
+      saveDraft({ amount, step: 'address', txid, wallet: chosen });
       setStep('address');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not prepare your deposit address.');
@@ -116,7 +127,7 @@ export function DepositView({ userId }: { userId: string }) {
     if (!details || details.mode !== 'manual') return;
     setBusy(true); setError(''); setNotice('');
     try {
-      await financeRequest('deposits', 'POST', { amount: Number(amount), ...(txid.trim() ? { txid: txid.trim() } : {}) });
+      await financeRequest('deposits', 'POST', { amount: Number(amount), destinationAddress: details.account.address, network: details.depositNetwork, ...(txid.trim() ? { txid: txid.trim() } : {}) });
       clearDraft();
       setSubmitted(true);
       setTxid('');
@@ -127,7 +138,7 @@ export function DepositView({ userId }: { userId: string }) {
 
   async function confirmSent() {
     if (!details || details.mode === 'mock' || busy) return;
-    if (details.liveDepositsDisabled || details.account.status !== 'active' || !details.account.address) {
+    if (details.liveDepositsDisabled || details.account.status !== 'active' || !details.account.address || (details.mode === 'manual' && !details.depositNetwork)) {
       setError('Your deposit address is unavailable right now. Do not send funds.');
       return;
     }
@@ -161,13 +172,13 @@ export function DepositView({ userId }: { userId: string }) {
 
   return <section className="dash-deposit-page">
     <a className="dash-deposit-back" href="/dashboard?view=wallet"><ArrowLeft size={17} /> Back to wallet</a>
-    <div className="dash-page-heading"><div><p className="dash-kicker">WALLET</p><h1>Deposit</h1><p className="dash-subtitle">USDT deposits on TRON (TRC20).</p></div><NotificationBell className="dash-page-mobile-notification" size={21} /></div>
+    <div className="dash-page-heading"><div><p className="dash-kicker">WALLET</p><h1>Deposit</h1><p className="dash-subtitle">USDT deposits to your personal wallet.</p></div><NotificationBell className="dash-page-mobile-notification" size={21} /></div>
 
     <div className="dash-deposit-layout"><div className="dash-deposit-main">
       <aside className={`dash-deposit-notice ${isMock ? 'dash-prototype-notice' : ''}`}>
         {isMock ? <TriangleAlert size={20} /> : <Info size={20} />}
-        <div><strong>{isMock ? 'TEST MODE — no real funds' : step === 'amount' ? 'USDT on TRON (TRC20)' : 'Send only USDT on TRON (TRC20)'}</strong>
-          <p>{isMock ? 'This is a simulated deposit account. Its TEST address is not on the blockchain. Never send cryptocurrency to it; TEST funds cannot be withdrawn or used to trade.' : step === 'amount' ? 'Choose your deposit amount, then continue to your personal deposit address.' : 'Send only USDT using the TRON (TRC20) network. Deposits are credited only after provider and network verification.'}</p>
+        <div><strong>{isMock ? 'TEST MODE — no real funds' : step === 'amount' ? 'USDT deposit' : `Send USDT on ${details?.depositNetwork || 'the selected network'}`}</strong>
+          <p>{isMock ? 'This is a simulated deposit account. Its TEST address is not on the blockchain. Never send cryptocurrency to it; TEST funds cannot be withdrawn or used to trade.' : step === 'amount' ? 'Choose your deposit amount, then continue to your personal deposit address and its network.' : `Send only USDT using the ${details?.depositNetwork || 'shown'} network. Deposits are credited only after provider and network verification.`}</p>
         </div>
       </aside>
 
@@ -187,7 +198,7 @@ export function DepositView({ userId }: { userId: string }) {
             {copy ? <div className="dash-deposit-address dash-prototype-address"><div className="dash-deposit-address-icon"><Wallet size={21} /></div><div><small>{details.mode === 'manual' ? 'DEPOSIT WALLET ADDRESS' : 'YOUR PERMANENT DEPOSIT ADDRESS'}</small><strong>{details.account.address}</strong><span>Network: {details.depositNetwork || 'TRON (TRC20)'} · Asset: USDT</span></div><button type="button" onClick={copyAddress} disabled={!details.account.address}>{copied ? <Check size={17} /> : <Clipboard size={17} />} {copied ? 'Copied' : 'Copy'}</button></div>
               : <div className="dash-deposit-address dash-prototype-address"><div className="dash-deposit-address-icon"><Wallet size={21} /></div><div><small>MOCK ADDRESS — NOT ON BLOCKCHAIN</small><strong>{details.account.address}</strong><span>Use the simulation controls below. Never send USDT here.</span></div></div>}
             {qr && <div className="dash-prototype-qr"><img src={qr} alt={isMock ? 'QR code for TEST mock address, not a blockchain address' : 'QR code for your USDT TRON deposit address'} /><span><QrCode size={15} /> {isMock ? 'TEST only · not for sending funds' : 'Scan to copy the address'}</span></div>}
-            {details.mode === 'manual' && <><div className="dash-deposit-network"><span><i />Network</span><strong>{details.depositNetwork}</strong></div>{details.depositInstructions && <div className="dash-deposit-helper">{details.depositInstructions}</div>}<label className="dash-deposit-label" htmlFor="deposit-txid">Transaction hash <span>(optional)</span></label><div className="dash-deposit-input-wrap"><input id="deposit-txid" value={txid} onChange={(event) => { setTxid(event.target.value); saveDraft({ amount, step: 'address', txid: event.target.value }); }} placeholder="Paste transaction hash if available" autoComplete="off" /></div><button className="dash-deposit-submit" type="button" onClick={() => void confirmSent()} disabled={busy}>{busy ? 'Submitting…' : 'I have sent'}</button></>}
+            {details.mode === 'manual' && <><div className="dash-deposit-network"><span><i />Network</span><strong>{details.depositNetwork}</strong></div>{details.depositInstructions && <div className="dash-deposit-helper">{details.depositInstructions}</div>}<label className="dash-deposit-label" htmlFor="deposit-txid">Transaction hash <span>(optional)</span></label><div className="dash-deposit-input-wrap"><input id="deposit-txid" value={txid} onChange={(event) => { setTxid(event.target.value); saveDraft({ amount, step: 'address', txid: event.target.value, wallet: { address: details.account.address, network: details.depositNetwork ?? '' } }); }} placeholder="Paste transaction hash if available" autoComplete="off" /></div><button className="dash-deposit-submit" type="button" onClick={() => void confirmSent()} disabled={busy}>{busy ? 'Submitting…' : 'I have sent'}</button></>}
             {details.mode === 'chainpay' && <div className="dash-deposit-network"><span><i />Network</span><strong>{details.depositNetwork || 'TRON (TRC20)'}</strong></div>}
             {details.mode === 'chainpay' && <button className="dash-deposit-submit" type="button" onClick={() => void confirmSent()} disabled={busy}>{busy ? 'Confirming…' : 'I have sent'}</button>}
           </> : <div className="dash-prototype-loading"><LoaderCircle className="admin-loading-orbit" size={21} /> Loading deposit details…</div>}

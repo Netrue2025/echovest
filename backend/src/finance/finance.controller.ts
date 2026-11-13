@@ -13,9 +13,9 @@ export class FinanceController {
   constructor(private readonly finance: FinanceService) {}
   @Get('settings') settings() { return this.finance.publicSettings(); }
   @Get('me') @UseGuards(SessionGuard) me(@Req() req: Request & { user?: User }) { return this.finance.summary(String(req.user!._id)); }
-  @Post('deposits') @UseGuards(OriginGuard, SessionGuard) deposit(@Req() req: Request & { user?: User }, @Body() body: DepositRequestDto) { return this.finance.requestDeposit(String(req.user!._id), body.amount, body.txid); }
+  @Post('deposits') @UseGuards(OriginGuard, SessionGuard) deposit(@Req() req: Request & { user?: User }, @Body() body: DepositRequestDto) { return this.finance.requestDeposit(String(req.user!._id), body.amount, body.txid, body.destinationAddress, body.network); }
   @Post('withdrawals') @UseGuards(OriginGuard, SessionGuard) withdraw(@Req() req: Request & { user?: User }, @Body() body: WithdrawalRequestDto) { return this.finance.requestWithdrawal(String(req.user!._id), body); }
-  @Get('admin/settings') @UseGuards(SessionGuard, AdminAccessGuard) @RequireAdminPermissions('wallets.view') adminSettings() { return this.finance.publicSettings(); }
+  @Get('admin/settings') @UseGuards(SessionGuard, AdminAccessGuard) @RequireAdminPermissions('wallets.view') adminSettings() { return this.finance.publicSettings(true); }
   @Patch('admin/settings') @UseGuards(OriginGuard, SessionGuard, AdminAccessGuard) @RequireAdminPermissions('wallets.manage') saveSettings(@Req() req: Request & { user?: User }, @Body() body: FinanceSettingsDto) { return this.finance.updateSettings(body, { id: String(req.user!._id), email: req.user!.email }); }
   @Get('admin/deposits') @UseGuards(SessionGuard, AdminAccessGuard) @RequireAdminPermissions('deposits.manage') deposits(@Query('archived') archived?: string) { return this.finance.adminTransactions('deposit', archived === 'true'); }
   @Get('admin/withdrawals') @UseGuards(SessionGuard, AdminAccessGuard) @RequireAdminPermissions('withdrawals.manage') withdrawals(@Query('archived') archived?: string) { return this.finance.adminTransactions('withdrawal', archived === 'true'); }

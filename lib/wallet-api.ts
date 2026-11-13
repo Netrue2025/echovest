@@ -11,7 +11,7 @@ function apiBase() {
 export type DepositDetails = {
   mode: 'mock' | 'chainpay' | 'manual'; testOnly: boolean; liveDepositsDisabled: boolean;
   depositNetwork?: string; depositInstructions?: string; minimumDeposit?: number;
-  account: { asset: 'USDT'; network: 'TRON'; protocol: 'TRC20'; address: string; externalReference: string; status: string; createdAt?: string };
+  account: { asset: 'USDT'; network: string; protocol: string; address: string; externalReference: string; status: string; createdAt?: string };
   testWallet: { asset: 'USDT'; network: 'TRON'; balance: string; withdrawable: false };
   history: Array<{ id: string; amount: string; status: string; description: string; createdAt?: string; testOnly: boolean }>;
 };

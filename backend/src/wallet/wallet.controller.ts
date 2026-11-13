@@ -9,9 +9,9 @@ import { WalletService } from './wallet.service.js';
 @Controller('wallet')
 export class WalletController {
   constructor(private readonly wallet: WalletService) {}
-  @Get('deposit-address') @UseGuards(SessionGuard) details(@Req() req: Request & { user?: User }, @Query('asset') asset = 'USDT', @Query('network') network = 'TRON') {
-    if (asset !== 'USDT' || network !== 'TRON') throw new BadRequestException('Only USDT on TRON (TRC20) is supported.');
-    return this.wallet.depositDetails(String(req.user!._id));
+  @Get('deposit-address') @UseGuards(SessionGuard) details(@Req() req: Request & { user?: User }, @Query('asset') asset = 'USDT', @Query('network') network = 'TRON', @Query('wallet') wallet?: string, @Query('walletNetwork') walletNetwork?: string) {
+    if (asset !== 'USDT' || !network.trim()) throw new BadRequestException('Choose USDT and a supported deposit network.');
+    return this.wallet.depositDetails(String(req.user!._id), wallet, walletNetwork);
   }
   @Post('mock-deposit-event') @UseGuards(OriginGuard, SessionGuard) simulate(@Req() req: Request & { user?: User }, @Body() body: MockDepositEventDto) { return this.wallet.simulate(String(req.user!._id), body); }
 }

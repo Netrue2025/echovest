@@ -79,14 +79,17 @@ export class WalletService {
     return fromMicros(rows.reduce((sum, row) => sum + toMicros(String(row.amount)), 0n));
   }
 
-  async depositDetails(userId: string) {
+  async depositDetails(userId: string, preferredAddress?: string, preferredNetwork?: string) {
     const settings = await this.financeSettings.findOne({ key: 'platform' }).lean().exec();
     const mode = this.mode(settings?.depositMethod);
     if (settings?.depositMethod === 'manual') {
+      const depositWallets = settings.depositWallets?.length ? settings.depositWallets : (settings.depositWalletAddress && settings.depositNetwork ? [{ address: settings.depositWalletAddress, network: settings.depositNetwork }] : []);
+      const preferred = preferredAddress && preferredNetwork ? depositWallets.find((wallet) => wallet.address === preferredAddress && wallet.network === preferredNetwork) : undefined;
+      const selectedWallet = preferred ?? (depositWallets.length ? depositWallets[Math.floor(Math.random() * depositWallets.length)] : undefined);
       const history = await this.financeTransactions.find({ userId: new Types.ObjectId(userId), type: 'deposit', archivedAt: { $exists: false } }).sort({ createdAt: -1 }).limit(30).lean().exec();
-      return { mode: 'manual' as const, testOnly: false, liveDepositsDisabled: !settings.depositWalletAddress || !settings.depositNetwork,
-        account: { asset: 'USDT' as const, network: 'TRON' as const, protocol: 'TRC20' as const, address: settings.depositWalletAddress, externalReference: '', status: settings.depositWalletAddress && settings.depositNetwork ? 'active' : 'disabled' },
-        depositNetwork: settings.depositNetwork, depositInstructions: settings.depositInstructions, minimumDeposit: settings.minimumDeposit,
+      return { mode: 'manual' as const, testOnly: false, liveDepositsDisabled: !selectedWallet,
+        account: { asset: 'USDT' as const, network: selectedWallet?.network ?? '', protocol: selectedWallet?.network ?? '', address: selectedWallet?.address ?? '', externalReference: '', status: selectedWallet ? 'active' : 'disabled' },
+        depositNetwork: selectedWallet?.network ?? '', depositInstructions: settings.depositInstructions, minimumDeposit: settings.minimumDeposit,
         testWallet: { asset: 'USDT' as const, network: 'TRON' as const, balance: '0', withdrawable: false as const },
         history: history.map((entry) => ({ id: String(entry._id), amount: String(entry.amount), status: entry.status, description: entry.rejectionReason || `Manual deposit · ${entry.network}`, createdAt: entry.createdAt, testOnly: false })) };
     }

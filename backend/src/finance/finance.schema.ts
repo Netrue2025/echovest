@@ -39,6 +39,7 @@ export class FinanceSettings {
   @Prop({ required: true, unique: true, default: 'platform' }) key!: string;
   @Prop({ default: '' }) depositWalletAddress!: string;
   @Prop({ default: '' }) depositNetwork!: string;
+  @Prop({ type: [{ address: { type: String, required: true }, network: { type: String, required: true } }], default: [] }) depositWallets!: Array<{ address: string; network: string }>;
   @Prop({ default: '' }) depositInstructions!: string;
   @Prop({ enum: ['manual', 'chainpay'] }) depositMethod?: 'manual' | 'chainpay';
   @Prop({ default: 0, min: 0 }) minimumDeposit!: number;

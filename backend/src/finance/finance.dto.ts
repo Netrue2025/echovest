@@ -3,6 +3,8 @@ import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsMongoId, IsNumber, 
 export class DepositRequestDto {
   @IsNumber({ maxDecimalPlaces: 8 }) @Min(0.01) amount!: number;
   @IsOptional() @IsString() @MaxLength(256) txid?: string;
+  @IsOptional() @IsString() @MaxLength(256) destinationAddress?: string;
+  @IsOptional() @IsString() @MaxLength(80) network?: string;
 }
 export class WithdrawalRequestDto {
   @IsNumber({ maxDecimalPlaces: 8 }) @Min(0.01) amount!: number;
@@ -16,6 +18,7 @@ export class FinanceSettingsDto {
   @IsIn(['manual', 'chainpay']) depositMethod!: 'manual' | 'chainpay';
   @IsString() @MaxLength(256) depositWalletAddress!: string;
   @IsString() @MaxLength(80) depositNetwork!: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(50) depositWallets?: Array<{ address: string; network: string }>;
   @IsString() @MaxLength(2000) depositInstructions!: string;
   @IsNumber({ maxDecimalPlaces: 8 }) @Min(0) minimumDeposit!: number;
   @IsNumber({ maxDecimalPlaces: 8 }) @Min(0) minimumWithdrawal!: number;
