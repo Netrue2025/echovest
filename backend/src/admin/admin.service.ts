@@ -14,6 +14,7 @@ import { User } from '../users/user.schema.js';
 import { FinanceTransaction } from '../finance/finance.schema.js';
 import { ProviderDeposit } from '../deposits/provider-deposit.schema.js';
 import { ReferralsService } from '../referrals/referrals.service.js';
+import { CopyTradeSignal, TradePosition } from '../trades/trade.schema.js';
 
 export type AdminActor = { id: string; email: string; isSuperAdmin?: boolean };
 
@@ -31,6 +32,8 @@ export class AdminService implements OnModuleInit {
     @InjectModel(User.name) private readonly userModel: Model<User>,
     @InjectModel(FinanceTransaction.name) private readonly transactions: Model<FinanceTransaction>,
     @InjectModel(ProviderDeposit.name) private readonly providerDeposits: Model<ProviderDeposit>,
+    @InjectModel(CopyTradeSignal.name) private readonly tradeSignals: Model<CopyTradeSignal>,
+    @InjectModel(TradePosition.name) private readonly tradePositions: Model<TradePosition>,
     @InjectConnection() private readonly connection: Connection,
     private readonly referrals: ReferralsService,
   ) {}
@@ -72,17 +75,39 @@ export class AdminService implements OnModuleInit {
     ]).exec();
     return new Map(rows.map((row) => [String(row._id), { amount: Number(row.amount ?? 0), count: Number(row.count ?? 0) }]));
   }
+  private async currentTradeEarnings() {
+    const now = Date.now();
+    const [earnedRows, paidRows] = await Promise.all([
+      this.tradePositions.aggregate([
+        { $match: { status: { $ne: 'closed_loss' } } },
+        { $lookup: { from: 'copy_trade_signals', localField: 'signalId', foreignField: '_id', as: 'signal' } },
+        { $unwind: '$signal' },
+        { $addFields: { _scheduleStart: { $toLong: '$signal.startsAt' }, _scheduleEndRaw: { $toLong: '$signal.endsAt' }, _joinedAt: { $toLong: '$joinedAt' }, _stoppedAt: { $toLong: '$stoppedAt' } } },
+        { $addFields: { _scheduleEnd: { $cond: [{ $gt: ['$_scheduleEndRaw', '$_scheduleStart'] }, '$_scheduleEndRaw', { $add: ['$_scheduleStart', { $multiply: [{ $ifNull: ['$signal.lockDays', 1] }, 86_400_000] }] }] } } },
+        { $addFields: { _positionStart: { $max: ['$_joinedAt', '$_scheduleStart'] }, _cutoff: { $min: [{ $ifNull: ['$_stoppedAt', '$_scheduleEnd'] }, '$_scheduleEnd'] } } },
+        { $addFields: { _elapsed: { $max: [0, { $subtract: [{ $min: [now, '$_cutoff'] }, '$_positionStart'] }] }, _duration: { $max: [1, { $subtract: ['$_scheduleEnd', '$_scheduleStart'] }] } } },
+        { $group: { _id: null, total: { $sum: { $round: [{ $multiply: ['$principal', { $divide: ['$signal.roiPercent', 100] }, { $min: [1, { $divide: ['$_elapsed', '$_duration'] }] }] }, 8] } } } },
+      ]).exec(),
+      this.transactions.aggregate([
+        { $match: { type: 'withdrawal', sourceType: 'trade_interest', profitLedger: true, status: 'approved' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]).exec(),
+    ]);
+    return Math.max(0, Number(earnedRows[0]?.total ?? 0) - Number(paidRows[0]?.total ?? 0));
+  }
   async overview(days = 30) {
     if (![7, 30, 90, 365].includes(days)) throw new BadRequestException('Choose a supported overview period.');
     const start = new Date(); start.setUTCHours(0, 0, 0, 0); start.setUTCDate(start.getUTCDate() - days + 1);
-    const [registeredUsers, referralCount, walletRows, financeTotals, chainpayTotals, financeDaily, chainpayDaily] = await Promise.all([
+    const [registeredUsers, referralCount, walletRows, activeTradeRows, financeTotals, chainpayTotals, financeDaily, chainpayDaily, totalTradeEarnings] = await Promise.all([
       this.userModel.countDocuments({ role: 'user' }).exec(),
       this.userModel.countDocuments({ role: 'user', referredBy: { $ne: null } }).exec(),
       this.userModel.aggregate([{ $match: { role: 'user' } }, { $group: { _id: null, trading: { $sum: '$tradingBalance' }, referral: { $sum: '$referralBalance' } } }]).exec(),
+      this.tradePositions.aggregate([{ $match: { status: 'active', principalReturnedAt: null } }, { $group: { _id: null, total: { $sum: '$principal' } } }]).exec(),
       this.transactions.aggregate([{ $match: { status: 'approved', archivedAt: { $exists: false }, createdAt: { $gte: start } } }, { $group: { _id: { type: '$type' }, total: { $sum: '$amount' } } }]).exec(),
       this.providerDeposits.aggregate([{ $match: { status: 'credited', archivedAt: { $exists: false }, creditedAt: { $gte: start } } }, { $group: { _id: null, total: { $sum: { $toDouble: '$amount' } } } }]).exec(),
       this.transactions.aggregate([{ $match: { status: 'approved', archivedAt: { $exists: false }, createdAt: { $gte: start } } }, { $group: { _id: { day: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, type: '$type' }, total: { $sum: '$amount' } } }]).exec(),
       this.providerDeposits.aggregate([{ $match: { status: 'credited', archivedAt: { $exists: false }, creditedAt: { $gte: start } } }, { $group: { _id: { day: { $dateToString: { format: '%Y-%m-%d', date: '$creditedAt' } } }, total: { $sum: { $toDouble: '$amount' } } } }]).exec(),
+      this.currentTradeEarnings(),
     ]);
     const daily = new Map<string, { date: string; deposits: number; withdrawals: number }>();
     for (let i = 0; i < days; i++) { const day = new Date(start); day.setUTCDate(start.getUTCDate() + i); const key = day.toISOString().slice(0, 10); daily.set(key, { date: key, deposits: 0, withdrawals: 0 }); }
@@ -91,7 +116,9 @@ export class AdminService implements OnModuleInit {
     const totals: Record<string, number> = { deposit: Number(chainpayTotals[0]?.total ?? 0), withdrawal: 0 };
     for (const row of financeTotals) totals[row._id.type] = (totals[row._id.type] ?? 0) + Number(row.total);
     const wallets = walletRows[0] ?? { trading: 0, referral: 0 };
-    return { periodDays: days, registeredUsers, referralCount, walletBalance: Number(wallets.trading ?? 0) + Number(wallets.referral ?? 0), tradingBalance: Number(wallets.trading ?? 0), referralBalance: Number(wallets.referral ?? 0), deposits: totals.deposit ?? 0, withdrawals: totals.withdrawal ?? 0, daily: [...daily.values()] };
+    const tradingBalance = Number(wallets.trading ?? 0), referralBalance = Number(wallets.referral ?? 0), activeTradePrincipal = Number(activeTradeRows[0]?.total ?? 0);
+    const investmentBalance = tradingBalance + activeTradePrincipal;
+    return { periodDays: days, registeredUsers, referralCount, walletBalance: tradingBalance + referralBalance, tradingBalance, referralBalance, activeTradePrincipal, investmentBalance, totalTradeEarnings, totalUserBalance: investmentBalance + referralBalance + totalTradeEarnings, deposits: totals.deposit ?? 0, withdrawals: totals.withdrawal ?? 0, daily: [...daily.values()] };
   }
   async listUserBalances() {
     const users = await this.userModel.find({ role: 'user' }).select('fullName email tradingBalance referralBalance createdAt').sort({ createdAt: -1 }).lean().exec();

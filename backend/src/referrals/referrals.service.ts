@@ -235,11 +235,7 @@ export class ReferralsService {
     return this.accrueEarnings(sourceUserId, sourceId, sourceAmount, session, 'deposit');
   }
 
-  async accrueTrading(sourceUserId: string, sourceId: string, sourceAmount: number, session: ClientSession): Promise<CreditedReferral[]> {
-    return this.accrueEarnings(sourceUserId, sourceId, sourceAmount, session, 'trading');
-  }
-
-  private async accrueEarnings(sourceUserId: string, sourceId: string, sourceAmount: number, session: ClientSession, sourceType: 'deposit' | 'trading'): Promise<CreditedReferral[]> {
+  private async accrueEarnings(sourceUserId: string, sourceId: string, sourceAmount: number, session: ClientSession, sourceType: 'deposit'): Promise<CreditedReferral[]> {
     const settings = await this.config();
     const rates = settings?.rates ?? DEFAULT_REFERRAL_RATES;
     let source = await this.users.findById(sourceUserId).select('referredBy').session(session).lean().exec();

@@ -241,7 +241,6 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
     await this.withdrawalSecurity.assertWithdrawal(userId, verification, { amount, destinationAddress, network, source: `interest:${positionId}` });
     const session = await this.positions.db.startSession();
     let createdTransaction: FinanceTransaction | null = null;
-    let referralPayouts: Array<{ userId: string; amount: number; tier: number }> = [];
     let signal!: CopyTradeSignal;
     try {
       await session.withTransaction(async () => {
@@ -268,12 +267,10 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
         if (payoutAmount <= 0) throw new BadRequestException('The withdrawal charge must be less than the withdrawal amount.');
         const docs = await this.transactions.create([{ userId: new Types.ObjectId(userId), type: 'withdrawal', amount, withdrawalFee, payoutAmount, balanceType: 'trading', status: 'pending_review', destinationAddress: destinationAddress.trim(), network: network.trim(), sourceType: 'trade_interest', profitLedger: true, tradePositionId: new Types.ObjectId(positionId) }], { session });
         createdTransaction = docs[0];
-        referralPayouts = await this.referrals.accrueTrading(userId, String(createdTransaction._id), amount, session);
         await this.writeAudit(userId, 'system', 'trades.interest.withdrawal_requested', String(createdTransaction._id), signal.pair, `${amount} USD accrued interest requested; pending admin withdrawal review.`, session);
       });
     } finally { await session.endSession(); }
     if (createdTransaction) await this.notifications.notifyUser(userId, 'Trade interest withdrawal requested', `${amount} USD accrued interest has been submitted for review.`, 'withdrawal').catch((error) => this.logger.warn(`Interest request notification failed: ${error instanceof Error ? error.message : 'unknown error'}`));
-    for (const payout of referralPayouts) await this.notifications.notifyUser(payout.userId, 'Referral trading commission credited', `You earned ${payout.amount} USD from a tier ${payout.tier} referral’s copy-trade interest.`, 'general').catch((error) => this.logger.warn(`Referral trade commission notification failed: ${error instanceof Error ? error.message : 'unknown error'}`));
     return { transaction: createdTransaction, message: 'Interest withdrawal request submitted for review.' };
   }
 
@@ -281,7 +278,6 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
     await this.withdrawalSecurity.assertWithdrawal(userId, verification, { amount, destinationAddress, network, source: 'profit' });
     const session = await this.positions.db.startSession();
     let createdTransaction: FinanceTransaction | null = null;
-    let referralPayouts: Array<{ userId: string; amount: number; tier: number }> = [];
     try {
       await session.withTransaction(async () => {
         const user = await this.users.findOne({ _id: userId, role: 'user', isDisabled: { $ne: true }, withdrawalsDisabled: { $ne: true } }).session(session).select('_id membershipLevel').lean().exec();
@@ -331,13 +327,11 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
         if (payoutAmount <= 0) throw new BadRequestException('The withdrawal charge must be less than the withdrawal amount.');
         const docs = await this.transactions.create([{ userId: new Types.ObjectId(userId), type: 'withdrawal', amount, withdrawalFee, payoutAmount, balanceType: 'trading', status: 'pending_review', destinationAddress: destinationAddress.trim(), network: network.trim(), sourceType: 'trade_interest', profitLedger: true, profitPositionAllocations: allocations }], { session });
         createdTransaction = docs[0];
-        referralPayouts = await this.referrals.accrueTrading(userId, String(createdTransaction._id), amount, session);
         await this.writeAudit(userId, 'system', 'trades.profit.withdrawal_requested', String(createdTransaction._id), 'Total profit earned', `${amount} USD profit withdrawal submitted across ${allocations.length} closed trade position(s); pending admin review.`, session);
       });
     } finally { await session.endSession(); }
     if (createdTransaction) await this.notifications.notifyUser(userId, 'Profit withdrawal requested', `${amount} USD profit has been submitted for review.`, 'withdrawal').catch((error) => this.logger.warn(`Profit withdrawal notification failed: ${error instanceof Error ? error.message : 'unknown error'}`));
     if (createdTransaction) void this.notifications.notifyAdmins('Profit withdrawal submitted', 'A user submitted a profit withdrawal for review.', '/admin?section=withdrawals').catch(() => undefined);
-    for (const payout of referralPayouts) await this.notifications.notifyUser(payout.userId, 'Referral trading commission credited', `You earned ${payout.amount} USD from a tier ${payout.tier} referral's copy-trade profit.`, 'general').catch((error) => this.logger.warn(`Referral trade commission notification failed: ${error instanceof Error ? error.message : 'unknown error'}`));
     return { transaction: createdTransaction, message: 'Profit withdrawal request submitted for review.' };
   }
 
